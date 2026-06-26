@@ -1,4 +1,6 @@
+use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
+use std::sync::LazyLock;
 
 #[derive(Debug)]
 pub struct Token {
@@ -8,6 +10,30 @@ pub struct Token {
     // literal: &'static dyn Any,
     line: u64,
 }
+
+pub const RESERVED_KEYWORDS: LazyLock<HashMap<String, TokenType>> = LazyLock::new(|| {
+    HashMap::from([
+        ("and", TokenType::And),
+        ("class", TokenType::Class),
+        ("else", TokenType::Else),
+        ("false", TokenType::False),
+        ("for", TokenType::For),
+        ("fun", TokenType::Fun),
+        ("if", TokenType::If),
+        ("nil", TokenType::Nil),
+        ("or", TokenType::Or),
+        ("print", TokenType::Print),
+        ("return", TokenType::Return),
+        ("super", TokenType::Super),
+        ("this", TokenType::This),
+        ("true", TokenType::True),
+        ("var", TokenType::Var),
+        ("while", TokenType::While),
+    ])
+    .into_iter()
+    .map(|(k, v)| (k.to_string(), v))
+    .collect()
+});
 
 impl Token {
     pub fn new(token_type: TokenType, lexeme: String, line: u64) -> Token {
@@ -26,7 +52,7 @@ impl Display for Token {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TokenType {
     // Single char token
     LeftParen,
@@ -70,6 +96,7 @@ pub enum TokenType {
     Print,
     Return,
     Super,
+    This,
     True,
     Var,
     While,

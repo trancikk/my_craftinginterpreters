@@ -1,5 +1,6 @@
 use crate::rlox::interpreter::RLox;
-use crate::rlox::token::{Token, TokenType};
+use crate::rlox::token::{RESERVED_KEYWORDS, Token, TokenType};
+use std::ops::Deref;
 use std::str::Lines;
 
 pub struct Scanner<'a> {
@@ -258,7 +259,7 @@ impl<'a> Scanner<'a> {
                     ))
                 }
             }
-            digit if digit >= '0' && digit <= '9' => {
+            digit if digit.is_numeric() => {
                 self.step_back();
                 let digits = self.advance_chars_until_whitespace();
                 let digits: String = String::from_iter(digits);
@@ -278,6 +279,20 @@ impl<'a> Scanner<'a> {
                     self.interpreter
                         .error(self.line_index, &format!("Incorrect number! {:?}", digits));
                     self.scan_token()
+                }
+            }
+            alpha if alpha.is_alphabetic() => {
+                self.step_back();
+                let identifier = self.advance_chars_until_whitespace();
+                let value: String = identifier.iter().collect();
+                if let Some(keyword) = RESERVED_KEYWORDS.get(&value).cloned() {
+                    Some(Token::new(keyword, value, self.line_index))
+                } else {
+                    Some(Token::new(
+                        TokenType::Identifier(value.clone()),
+                        value,
+                        self.line_index,
+                    ))
                 }
             }
             _ => {
@@ -307,7 +322,7 @@ impl Iterator for Scanner<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rlox::token::TokenType::{FloatNumber, Number};
+    use crate::rlox::token::TokenType::{FloatNumber, Number, While};
 
     #[test]
     fn it_works() {
@@ -369,6 +384,50 @@ mod tests {
     }
 
     #[test]
+    fn scans_keyword() {
+        //TODO never finishes, scan for string terminator probably has a bug
+        let interpreter = RLox { had_error: false };
+        let prompt = "
+        while
+        ";
+        let mut scanner = Scanner::new(interpreter, prompt.lines());
+        let result: Vec<_> = scanner.collect_tokens();
+        assert!(!scanner.interpreter.had_error);
+        for token in result {
+            assert!(match token {
+                Token { token_type, .. } => {
+                    match token_type {
+                        While => true,
+                        _ => false,
+                    }
+                }
+            });
+        }
+    }
+
+    #[test]
+    fn scans_identifiers() {
+        //TODO never finishes, scan for string terminator probably has a bug
+        let interpreter = RLox { had_error: false };
+        let prompt = "
+        my ident
+        ";
+        let mut scanner = Scanner::new(interpreter, prompt.lines());
+        let result: Vec<_> = scanner.collect_tokens();
+        assert!(!scanner.interpreter.had_error);
+        for token in result {
+            assert!(match token {
+                Token { token_type, .. } => {
+                    match token_type {
+                        TokenType::Identifier(value) => value == "my" || value == "ident",
+                        _ => false,
+                    }
+                }
+            });
+        }
+    }
+
+    #[test]
     fn scans_number_fails() {
         //TODO never finishes, scan for string terminator probably has a bug
         let interpreter = RLox { had_error: false };
@@ -378,7 +437,6 @@ mod tests {
         let mut scanner = Scanner::new(interpreter, prompt.lines());
         let _: Vec<_> = scanner.collect_tokens();
         assert!(scanner.interpreter.had_error);
-
     }
 
     #[test]
