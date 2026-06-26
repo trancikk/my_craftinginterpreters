@@ -1,14 +1,16 @@
+use crate::rlox::scanner::Scanner;
+use crate::rlox::token::Token;
 use std::fs::File;
 use std::io;
 use std::io::{Read, Write};
 
-#[derive(Clone)]
 pub struct RLox {
     pub had_error: bool,
 }
 
 impl RLox {
-    pub fn run_file(&self, path: &str) -> anyhow::Result<()> {
+    pub fn run_file(&mut self, path: &str) -> anyhow::Result<()> {
+        // TODO make is return lines
         let mut file = File::open(path)?;
         let mut result = String::new();
         file.read_to_string(&mut result)?;
@@ -19,6 +21,7 @@ impl RLox {
         let mut line = String::new();
         let stdin = io::stdin();
         let mut stdout = io::stdout();
+        // TODO return lines
         loop {
             let mut lock = stdout.lock();
             write!(lock, "> ")?;
@@ -37,10 +40,10 @@ impl RLox {
         Ok(())
     }
 
-    pub fn run(&self, code: &str) -> anyhow::Result<()> {
-        for s in code.chars() {
-            print!("{s}")
-        }
+    pub fn run(&mut self, code: &str) -> anyhow::Result<()> {
+        let lines = code.lines();
+        let scanner = Scanner::new(self, lines);
+        let _: Vec<Token> = scanner.collect();
         Ok(())
     }
 

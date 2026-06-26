@@ -1,6 +1,5 @@
 use crate::rlox::interpreter::RLox;
 use crate::rlox::token::{RESERVED_KEYWORDS, Token, TokenType};
-use std::ops::Deref;
 use std::str::Lines;
 
 pub struct Scanner<'a> {
@@ -8,12 +7,12 @@ pub struct Scanner<'a> {
     current_line: Option<&'a str>,
     current_position: usize,
     line_index: u64,
-    interpreter: RLox,
+    interpreter: &'a mut RLox,
     end_is_reached: bool,
 }
 
 impl<'a> Scanner<'a> {
-    pub fn new(interpreter: RLox, mut lines: Lines<'a>) -> Self {
+    pub fn new(interpreter: &'a mut RLox, mut lines: Lines<'a>) -> Self {
         let current_line = lines.next();
         Scanner {
             lines,
@@ -326,11 +325,11 @@ mod tests {
 
     #[test]
     fn it_works() {
-        let interpreter = RLox { had_error: false };
+        let mut interpreter = RLox { had_error: false };
         let prompt = "+ -
         !=
         ";
-        let scanner = Scanner::new(interpreter, prompt.lines());
+        let scanner = Scanner::new(&mut interpreter, prompt.lines());
         for token in scanner {
             println!("{}", token)
         }
@@ -338,22 +337,22 @@ mod tests {
 
     #[test]
     fn unterminated_string_throws_error() {
-        let interpreter = RLox { had_error: false };
+        let mut interpreter = RLox { had_error: false };
         let prompt = "+ -
         != \" bla bla bla
         ";
-        let mut scanner = Scanner::new(interpreter, prompt.lines());
+        let mut scanner = Scanner::new(&mut interpreter, prompt.lines());
         let _: Vec<_> = scanner.collect_tokens();
         assert!(scanner.interpreter.had_error);
     }
 
     #[test]
     fn terminated_string_dont_throw_error() {
-        let interpreter = RLox { had_error: false };
+        let mut interpreter = RLox { had_error: false };
         let prompt = "+ -
         != \" bla bla bla
         another bla \" =";
-        let mut scanner = Scanner::new(interpreter, prompt.lines());
+        let mut scanner = Scanner::new(&mut interpreter, prompt.lines());
         let result: Vec<_> = scanner.collect_tokens();
         assert!(!scanner.interpreter.had_error);
         for token in result {
@@ -363,12 +362,11 @@ mod tests {
 
     #[test]
     fn scans_integers() {
-        //TODO never finishes, scan for string terminator probably has a bug
-        let interpreter = RLox { had_error: false };
+        let mut interpreter = RLox { had_error: false };
         let prompt = "
         589565
         ";
-        let mut scanner = Scanner::new(interpreter, prompt.lines());
+        let mut scanner = Scanner::new(&mut interpreter, prompt.lines());
         let result: Vec<_> = scanner.collect_tokens();
         assert!(!scanner.interpreter.had_error);
         for token in result {
@@ -385,12 +383,11 @@ mod tests {
 
     #[test]
     fn scans_keyword() {
-        //TODO never finishes, scan for string terminator probably has a bug
-        let interpreter = RLox { had_error: false };
+        let mut interpreter = RLox { had_error: false };
         let prompt = "
         while
         ";
-        let mut scanner = Scanner::new(interpreter, prompt.lines());
+        let mut scanner = Scanner::new(&mut interpreter, prompt.lines());
         let result: Vec<_> = scanner.collect_tokens();
         assert!(!scanner.interpreter.had_error);
         for token in result {
@@ -407,12 +404,11 @@ mod tests {
 
     #[test]
     fn scans_identifiers() {
-        //TODO never finishes, scan for string terminator probably has a bug
-        let interpreter = RLox { had_error: false };
+        let mut interpreter = RLox { had_error: false };
         let prompt = "
         my ident
         ";
-        let mut scanner = Scanner::new(interpreter, prompt.lines());
+        let mut scanner = Scanner::new(&mut interpreter, prompt.lines());
         let result: Vec<_> = scanner.collect_tokens();
         assert!(!scanner.interpreter.had_error);
         for token in result {
@@ -429,24 +425,22 @@ mod tests {
 
     #[test]
     fn scans_number_fails() {
-        //TODO never finishes, scan for string terminator probably has a bug
-        let interpreter = RLox { had_error: false };
+        let mut interpreter = RLox { had_error: false };
         let prompt = "
         589565,22
         ";
-        let mut scanner = Scanner::new(interpreter, prompt.lines());
+        let mut scanner = Scanner::new(&mut interpreter, prompt.lines());
         let _: Vec<_> = scanner.collect_tokens();
         assert!(scanner.interpreter.had_error);
     }
 
     #[test]
     fn scans_floats_dot() {
-        //TODO never finishes, scan for string terminator probably has a bug
-        let interpreter = RLox { had_error: false };
+        let mut interpreter = RLox { had_error: false };
         let prompt = "
         589565.22
         ";
-        let mut scanner = Scanner::new(interpreter, prompt.lines());
+        let mut scanner = Scanner::new(&mut interpreter, prompt.lines());
         let result: Vec<_> = scanner.collect_tokens();
         assert!(!scanner.interpreter.had_error);
         for token in result {
