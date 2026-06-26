@@ -2,7 +2,7 @@ use std::fmt::{Display, Formatter};
 
 #[derive(Debug)]
 pub struct Token {
-    token_type: TokenType,
+    pub token_type: TokenType,
     lexeme: String,
     // TODO embed into token type enum value
     // literal: &'static dyn Any,
@@ -54,7 +54,8 @@ pub enum TokenType {
     // Literals
     Identifier(String),
     StringToken(String),
-    Number(u64),
+    Number(i64),
+    FloatNumber(f64),
 
     // Keywords
     And,
