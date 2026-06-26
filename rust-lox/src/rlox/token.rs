@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::fmt::{Display, Formatter};
 
 #[derive(Debug)]
@@ -54,7 +53,7 @@ pub enum TokenType {
 
     // Literals
     Identifier(String),
-    String(String),
+    StringToken(String),
     Number(u64),
 
     // Keywords

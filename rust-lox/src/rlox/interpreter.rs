@@ -1,6 +1,8 @@
 use std::fs::File;
 use std::io;
 use std::io::{Read, Write};
+
+#[derive(Clone)]
 pub struct RLox {
     pub had_error: bool,
 }
