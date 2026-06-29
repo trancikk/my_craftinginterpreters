@@ -1,6 +1,6 @@
 use crate::rlox::interpreter::RLox;
 use crate::rlox::token::{RESERVED_KEYWORDS, Token, TokenType};
-use std::str::Lines;
+use std::str::{Chars, Lines};
 
 pub struct Scanner<'a> {
     lines: Lines<'a>,
@@ -42,30 +42,52 @@ impl<'a> Scanner<'a> {
     }
 
     fn advance(&mut self) -> Option<char> {
-        let ch = self.peek();
-        match ch {
-            Some(c) => {
-                self.current_position += c.len_utf8();
-                ch
-            }
-            None => {
+        loop {
+            let ch = self.advance_in_line();
+            if ch.is_none() {
                 self.next_line()?;
-                self.advance()
+            } else {
+                return ch;
             }
         }
     }
 
-    fn advance_by_char(&mut self, ch: &char) {
+    fn advance_by_char(&mut self, ch: char) {
         self.current_position += ch.len_utf8();
     }
 
-    fn conditional_advance_until(&mut self, ch: char) -> Option<char> {
-        let next_char = self.peek()?;
-        if next_char != ch {
-            self.advance_by_char(&next_char);
-            Some(next_char)
-        } else {
-            None
+    fn advance_in_line(&mut self) -> Option<char> {
+        let ch = self.peek();
+        if let Some(next_char) = ch {
+            self.advance_by_char(next_char);
+        }
+        ch
+    }
+
+    fn get_current_line_cursor(&self) -> Option<Chars> {
+        let line = self.current_line?;
+        Some(line[self.current_position..].chars())
+    }
+
+    fn advance_until_char_in_line(&mut self, ch: char) -> Option<char> {
+        let chars = self.get_current_line_cursor()?;
+        for next_char in chars {
+            if next_char == ch {
+                self.advance_by_char(next_char);
+                return Some(next_char);
+            }
+        }
+        None
+    }
+
+    fn advance_until_char(&mut self, ch: char) -> Option<char> {
+        loop {
+            let next_char = self.advance_until_char_in_line(ch);
+            if next_char.is_none() {
+                self.next_line()?;
+            } else {
+                return next_char;
+            }
         }
     }
 
@@ -76,10 +98,10 @@ impl<'a> Scanner<'a> {
             for c in chars {
                 if c != ch {
                     buf.push(c);
-                    self.advance_by_char(&c);
+                    self.advance_by_char(c);
                 } else {
                     if inclusive {
-                        self.advance_by_char(&c);
+                        self.advance_by_char(c);
                     }
                     break 'outer;
                 }
@@ -95,18 +117,23 @@ impl<'a> Scanner<'a> {
         self.current_position -= 1
     }
     fn advance_chars_until_whitespace(&mut self) -> Vec<char> {
-        if let Some(line) = self.current_line {
-            let chars: Vec<char> = line[self.current_position..]
-                .chars()
-                .take_while(|c| {
-                    self.advance_by_char(c);
-                    !c.is_whitespace()
-                })
-                .collect();
-            chars
-        } else {
-            vec![]
+        let mut result = vec![];
+        // WA for borrowing
+        // let line = self.get_current_line_cursor();
+        let line = self.current_line;
+        if let Some(line) = line {
+            let chars = line[self.current_position..].chars();
+            for ch in chars {
+                self.advance_by_char(ch);
+                if !ch.is_whitespace() {
+                    result.push(ch);
+                } else {
+                    break;
+                }
+            }
         }
+
+        result
     }
 
     fn conditional_advance(&mut self, ch: char) -> Option<char> {
@@ -131,173 +158,201 @@ impl<'a> Scanner<'a> {
     }
 
     pub fn scan_token(&mut self) -> Option<Token> {
-        let ch = self.advance()?;
-        match ch {
-            '(' => Some(Token::new(
-                TokenType::LeftParen,
-                ch.to_string(),
-                self.line_index,
-            )),
-            ')' => Some(Token::new(
-                TokenType::RightParen,
-                ch.to_string(),
-                self.line_index,
-            )),
-            '{' => Some(Token::new(
-                TokenType::LeftBrace,
-                ch.to_string(),
-                self.line_index,
-            )),
-            '}' => Some(Token::new(
-                TokenType::RightBrace,
-                ch.to_string(),
-                self.line_index,
-            )),
-            ',' => Some(Token::new(
-                TokenType::Comma,
-                ch.to_string(),
-                self.line_index,
-            )),
-            '.' => Some(Token::new(TokenType::Dot, ch.to_string(), self.line_index)),
-            '-' => Some(Token::new(
-                TokenType::Minus,
-                ch.to_string(),
-                self.line_index,
-            )),
-            '+' => Some(Token::new(TokenType::Plus, ch.to_string(), self.line_index)),
-            ';' => Some(Token::new(
-                TokenType::Semicolon,
-                ch.to_string(),
-                self.line_index,
-            )),
-            '*' => Some(Token::new(TokenType::Star, ch.to_string(), self.line_index)),
-            '!' => {
-                let next_char = self.conditional_advance('=');
-                match next_char {
-                    Some(_) => Some(Token::new(
-                        TokenType::BangEqual,
-                        "!=".into(),
-                        self.line_index,
-                    )),
-                    None => Some(Token::new(TokenType::Bang, ch.to_string(), self.line_index)),
-                }
-            }
-            '=' => {
-                let next_char = self.conditional_advance('=');
-                match next_char {
-                    Some(_) => Some(Token::new(
-                        TokenType::EqualEqual,
-                        "==".into(),
-                        self.line_index,
-                    )),
-                    None => Some(Token::new(
-                        TokenType::Equal,
+        'outer: loop {
+            let ch = self.advance()?;
+            match ch {
+                '(' => {
+                    return Some(Token::new(
+                        TokenType::LeftParen,
                         ch.to_string(),
                         self.line_index,
-                    )),
+                    ));
                 }
-            }
-            '<' => {
-                let next_char = self.conditional_advance('=');
-                match next_char {
-                    Some(_) => Some(Token::new(
-                        TokenType::LessEqual,
-                        "<=".into(),
-                        self.line_index,
-                    )),
-                    None => Some(Token::new(TokenType::Less, ch.to_string(), self.line_index)),
-                }
-            }
-            '>' => {
-                let next_char = self.conditional_advance('=');
-                match next_char {
-                    Some(_) => Some(Token::new(
-                        TokenType::GreaterEqual,
-                        ">=".into(),
-                        self.line_index,
-                    )),
-                    None => Some(Token::new(
-                        TokenType::Greater,
+                ')' => {
+                    return Some(Token::new(
+                        TokenType::RightParen,
                         ch.to_string(),
                         self.line_index,
-                    )),
+                    ));
                 }
-            }
-            '/' => {
-                if let Some(_next_char) = self.conditional_advance('/') {
-                    while let Some(_next) = self.conditional_advance_until('\n') {}
-                    self.scan_token()
-                } else {
-                    Some(Token::new(
-                        TokenType::Slash,
+                '{' => {
+                    return Some(Token::new(
+                        TokenType::LeftBrace,
                         ch.to_string(),
                         self.line_index,
-                    ))
+                    ));
                 }
-            }
-            ' ' | '\r' | '\t' => self.scan_token(),
-            '\n' => {
-                self.next_line();
-                self.scan_token()
-            }
-            '\"' => {
-                let str = self.advance_chars_until('\"', true);
-                if self.end_is_reached {
-                    self.interpreter.error(
+                '}' => {
+                    return Some(Token::new(
+                        TokenType::RightBrace,
+                        ch.to_string(),
                         self.line_index,
-                        &format!("Unterminated string, {:?}", String::from_iter(str)),
-                    );
-                    None
-                } else {
-                    let lexeme = String::from_iter(str);
-                    Some(Token::new(
-                        TokenType::StringToken(lexeme.clone()),
-                        //TODO clarify whats lexeme
-                        lexeme,
-                        self.line_index,
-                    ))
+                    ));
                 }
-            }
-            digit if digit.is_numeric() => {
-                self.step_back();
-                let digits = self.advance_chars_until_whitespace();
-                let digits: String = String::from_iter(digits);
-                if let Ok(number) = digits.parse::<i64>() {
-                    Some(Token::new(
-                        TokenType::Number(number),
-                        number.to_string(),
+                ',' => {
+                    return Some(Token::new(
+                        TokenType::Comma,
+                        ch.to_string(),
                         self.line_index,
-                    ))
-                } else if let Ok(number) = digits.parse::<f64>() {
-                    Some(Token::new(
-                        TokenType::FloatNumber(number),
-                        number.to_string(),
+                    ));
+                }
+                '.' => return Some(Token::new(TokenType::Dot, ch.to_string(), self.line_index)),
+                '-' => {
+                    return Some(Token::new(
+                        TokenType::Minus,
+                        ch.to_string(),
                         self.line_index,
-                    ))
-                } else {
+                    ));
+                }
+                '+' => return Some(Token::new(TokenType::Plus, ch.to_string(), self.line_index)),
+                ';' => {
+                    return Some(Token::new(
+                        TokenType::Semicolon,
+                        ch.to_string(),
+                        self.line_index,
+                    ));
+                }
+                '*' => return Some(Token::new(TokenType::Star, ch.to_string(), self.line_index)),
+                '!' => {
+                    return match self.conditional_advance('=') {
+                        Some(_) => Some(Token::new(
+                            TokenType::BangEqual,
+                            "!=".into(),
+                            self.line_index,
+                        )),
+                        None => Some(Token::new(TokenType::Bang, ch.to_string(), self.line_index)),
+                    };
+                }
+                '=' => {
+                    return match self.conditional_advance('=') {
+                        Some(_) => Some(Token::new(
+                            TokenType::EqualEqual,
+                            "==".into(),
+                            self.line_index,
+                        )),
+                        None => Some(Token::new(
+                            TokenType::Equal,
+                            ch.to_string(),
+                            self.line_index,
+                        )),
+                    };
+                }
+                '<' => {
+                    return match self.conditional_advance('=') {
+                        Some(_) => Some(Token::new(
+                            TokenType::LessEqual,
+                            "<=".into(),
+                            self.line_index,
+                        )),
+                        None => Some(Token::new(TokenType::Less, ch.to_string(), self.line_index)),
+                    };
+                }
+                '>' => {
+                    return match self.conditional_advance('=') {
+                        Some(_) => Some(Token::new(
+                            TokenType::GreaterEqual,
+                            ">=".into(),
+                            self.line_index,
+                        )),
+                        None => Some(Token::new(
+                            TokenType::Greater,
+                            ch.to_string(),
+                            self.line_index,
+                        )),
+                    };
+                }
+                '/' => {
+                    let next_char = self.advance_in_line();
+                    match next_char {
+                        Some('/') => {
+                            self.next_line()?;
+                            continue;
+                        }
+                        Some('*') => loop {
+                            self.advance_until_char('*');
+                            let next_token = self.advance()?;
+                            if next_token == '/' {
+                                continue 'outer;
+                            }
+                        },
+                        Some(_) => {
+                            return Some(Token::new(
+                                TokenType::Slash,
+                                ch.to_string(),
+                                self.line_index,
+                            ));
+                        }
+                        None => {
+                            return Some(Token::new(
+                                TokenType::Slash,
+                                ch.to_string(),
+                                self.line_index,
+                            ));
+                        }
+                    }
+                }
+                ' ' | '\r' | '\t' => continue,
+                '\n' => {
+                    self.next_line();
+                }
+                '\"' => {
+                    let str = self.advance_chars_until('\"', true);
+                    return if self.end_is_reached {
+                        self.interpreter.error(
+                            self.line_index,
+                            &format!("Unterminated string, {:?}", String::from_iter(str)),
+                        );
+                        None
+                    } else {
+                        let lexeme = String::from_iter(str);
+                        Some(Token::new(
+                            TokenType::StringToken(lexeme.clone()),
+                            //TODO clarify whats lexeme
+                            lexeme,
+                            self.line_index,
+                        ))
+                    };
+                }
+                digit if digit.is_numeric() => {
+                    self.step_back();
+                    let digits = self.advance_chars_until_whitespace();
+                    let digits: String = String::from_iter(digits);
+                    if let Ok(number) = digits.parse::<i64>() {
+                        return Some(Token::new(
+                            TokenType::Number(number),
+                            number.to_string(),
+                            self.line_index,
+                        ));
+                    } else if let Ok(number) = digits.parse::<f64>() {
+                        return Some(Token::new(
+                            TokenType::FloatNumber(number),
+                            number.to_string(),
+                            self.line_index,
+                        ));
+                    } else {
+                        self.interpreter
+                            .error(self.line_index, &format!("Incorrect number! {:?}", digits));
+                    }
+                }
+                alpha if alpha.is_alphabetic() => {
+                    self.step_back();
+                    let identifier = self.advance_chars_until_whitespace();
+                    let value: String = identifier.iter().collect();
+                    return if let Some(keyword) = RESERVED_KEYWORDS.get(&value).cloned() {
+                        Some(Token::new(keyword, value, self.line_index))
+                    } else {
+                        Some(Token::new(
+                            TokenType::Identifier(value.clone()),
+                            value,
+                            self.line_index,
+                        ))
+                    };
+                }
+                _ => {
                     self.interpreter
-                        .error(self.line_index, &format!("Incorrect number! {:?}", digits));
-                    self.scan_token()
+                        .error(self.line_index, "Unexpected character");
+                    return None;
                 }
-            }
-            alpha if alpha.is_alphabetic() => {
-                self.step_back();
-                let identifier = self.advance_chars_until_whitespace();
-                let value: String = identifier.iter().collect();
-                if let Some(keyword) = RESERVED_KEYWORDS.get(&value).cloned() {
-                    Some(Token::new(keyword, value, self.line_index))
-                } else {
-                    Some(Token::new(
-                        TokenType::Identifier(value.clone()),
-                        value,
-                        self.line_index,
-                    ))
-                }
-            }
-            _ => {
-                self.interpreter
-                    .error(self.line_index, "Unexpected character");
-                None
             }
         }
     }
