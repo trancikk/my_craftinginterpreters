@@ -376,7 +376,7 @@ impl Iterator for Scanner<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rlox::token::TokenType::{FloatNumber, Number, While};
+    use crate::rlox::token::TokenType::{FloatNumber, Identifier, Number, While};
 
     #[test]
     fn it_works() {
@@ -503,6 +503,32 @@ mod tests {
                 Token { token_type, .. } => {
                     match token_type {
                         FloatNumber(value) => value == 589565.22,
+                        _ => false,
+                    }
+                }
+            });
+        }
+    }
+
+    #[test]
+    fn scans_multiline_comments() {
+        let mut interpreter = RLox { had_error: false };
+        let prompt = "
+        my code /* this is the code
+            anoter code *
+            end of comment */
+        identifier
+        ";
+        let mut scanner = Scanner::new(&mut interpreter, prompt.lines());
+        let result: Vec<_> = scanner.collect_tokens();
+        assert!(!scanner.interpreter.had_error);
+        for token in result {
+            assert!(match token {
+                Token { token_type, .. } => {
+                    match token_type {
+                        Identifier(value) => {
+                            value == "my" || value == "code" || value == "identifier"
+                        }
                         _ => false,
                     }
                 }
