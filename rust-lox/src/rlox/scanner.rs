@@ -7,19 +7,17 @@ pub struct Scanner<'a> {
     current_line: Option<&'a str>,
     current_position: usize,
     line_index: u64,
-    interpreter: &'a mut RLox,
     end_is_reached: bool,
 }
 
 impl<'a> Scanner<'a> {
-    pub fn new(interpreter: &'a mut RLox, mut lines: Lines<'a>) -> Self {
+    pub fn new(mut lines: Lines<'a>) -> Self {
         let current_line = lines.next();
         Scanner {
             lines,
             current_line,
             current_position: 0,
             line_index: 0,
-            interpreter,
             end_is_reached: false,
         }
     }
@@ -106,15 +104,37 @@ impl<'a> Scanner<'a> {
                 self.advance_by_char(c);
             }
             self.next_line();
-            buf.push('\n')
+            buf.push('\n');
+        }
+
+        buf
+    }
+
+    fn advance_chars_until_fn<F>(&mut self, predicate: F) -> Vec<char>
+    where
+        F: Fn(char) -> bool,
+    {
+        let mut buf = vec![];
+        'outer: while let Some(line) = self.current_line {
+            let chars = line[self.current_position..].chars();
+            for c in chars {
+                if predicate(c) {
+                    break 'outer;
+                }
+                buf.push(c);
+                self.advance_by_char(c);
+            }
+            self.next_line();
+            buf.push('\n');
         }
 
         buf
     }
 
     fn step_back(&mut self) {
-        self.current_position -= 1
+        self.current_position -= 1;
     }
+
     fn advance_chars_until_whitespace(&mut self) -> Vec<char> {
         let mut result = vec![];
         // WA for borrowing
@@ -155,7 +175,7 @@ impl<'a> Scanner<'a> {
         None
     }
 
-    pub fn scan_token(&mut self) -> Option<Token> {
+    pub fn scan_token(&mut self, interpreter: &mut RLox) -> Option<Token> {
         'outer: loop {
             let ch = self.advance()?;
             match ch {
@@ -288,7 +308,7 @@ impl<'a> Scanner<'a> {
                 '\"' => {
                     let str = self.advance_chars_until('\"', true);
                     return if self.end_is_reached {
-                        self.interpreter.error(
+                        interpreter.error(
                             self.line_index,
                             &format!("Unterminated string, {:?}", String::from_iter(str)),
                         );
@@ -305,7 +325,7 @@ impl<'a> Scanner<'a> {
                 }
                 digit if digit.is_numeric() => {
                     self.step_back();
-                    let digits = self.advance_chars_until_whitespace();
+                    let digits = self.advance_chars_until_fn(|x| !x.is_numeric());
                     let digits: String = String::from_iter(digits);
                     if let Ok(number) = digits.parse::<u64>() {
                         return Some(Token::new(
@@ -320,8 +340,7 @@ impl<'a> Scanner<'a> {
                             self.line_index,
                         ));
                     }
-                    self.interpreter
-                        .error(self.line_index, &format!("Incorrect number! {digits:?}"));
+                    interpreter.error(self.line_index, &format!("Incorrect number! {digits:?}"));
                 }
                 alpha if alpha.is_alphabetic() => {
                     self.step_back();
@@ -338,27 +357,19 @@ impl<'a> Scanner<'a> {
                     };
                 }
                 _ => {
-                    self.interpreter
-                        .error(self.line_index, "Unexpected character");
+                    interpreter.error(self.line_index, "Unexpected character");
                     return None;
                 }
             }
         }
     }
 
-    pub fn collect_tokens(&mut self) -> Vec<Token> {
+    pub fn collect_tokens(&mut self, interpreter: &mut RLox) -> Vec<Token> {
         let mut v = vec![];
-        for token in self {
+        while let Some(token) = self.scan_token(interpreter) {
             v.push(token);
         }
         v
-    }
-}
-
-impl Iterator for Scanner<'_> {
-    type Item = Token;
-    fn next(&mut self) -> Option<Self::Item> {
-        self.scan_token()
     }
 }
 
@@ -367,14 +378,35 @@ mod tests {
     use super::*;
     use crate::rlox::token::TokenType::{FloatNumber, Identifier, Number, While};
 
+    struct ScannerIterator<'a> {
+        scanner: Scanner<'a>,
+        interpreter: &'a mut RLox,
+    }
+
+    impl<'a> ScannerIterator<'a> {
+        pub fn new(interpreter: &'a mut RLox, scanner: Scanner<'a>) -> ScannerIterator<'a> {
+            ScannerIterator {
+                scanner,
+                interpreter,
+            }
+        }
+    }
+    impl Iterator for ScannerIterator<'_> {
+        type Item = Token;
+        fn next(&mut self) -> Option<Self::Item> {
+            self.scanner.scan_token(self.interpreter)
+        }
+    }
+
     #[test]
     fn it_works() {
         let mut interpreter = RLox { had_error: false };
         let prompt = "+ -
         !=
         ";
-        let scanner = Scanner::new(&mut interpreter, prompt.lines());
-        for token in scanner {
+        let scanner = Scanner::new(prompt.lines());
+        let scanner_iterator = ScannerIterator::new(&mut interpreter, scanner);
+        for token in scanner_iterator {
             println!("{token}");
         }
     }
@@ -385,9 +417,9 @@ mod tests {
         let prompt = "+ -
         != \" bla bla bla
         ";
-        let mut scanner = Scanner::new(&mut interpreter, prompt.lines());
-        let _: Vec<_> = scanner.collect_tokens();
-        assert!(scanner.interpreter.had_error);
+        let mut scanner = Scanner::new(prompt.lines());
+        let _: Vec<_> = scanner.collect_tokens(&mut interpreter);
+        assert!(interpreter.had_error);
     }
 
     #[test]
@@ -396,9 +428,9 @@ mod tests {
         let prompt = "+ -
         != \" bla bla bla
         another bla \" =";
-        let mut scanner = Scanner::new(&mut interpreter, prompt.lines());
-        let result: Vec<_> = scanner.collect_tokens();
-        assert!(!scanner.interpreter.had_error);
+        let mut scanner = Scanner::new(prompt.lines());
+        let result: Vec<_> = scanner.collect_tokens(&mut interpreter);
+        assert!(!interpreter.had_error);
         for token in result {
             println!("{token:?}");
         }
@@ -410,9 +442,9 @@ mod tests {
         let prompt = "
         589565
         ";
-        let mut scanner = Scanner::new(&mut interpreter, prompt.lines());
-        let result: Vec<_> = scanner.collect_tokens();
-        assert!(!scanner.interpreter.had_error);
+        let mut scanner = Scanner::new(prompt.lines());
+        let result: Vec<_> = scanner.collect_tokens(&mut interpreter);
+        assert!(!interpreter.had_error);
         for token in result {
             assert!({
                 let Token { token_type, .. } = token;
@@ -430,9 +462,9 @@ mod tests {
         let prompt = "
         while
         ";
-        let mut scanner = Scanner::new(&mut interpreter, prompt.lines());
-        let result: Vec<_> = scanner.collect_tokens();
-        assert!(!scanner.interpreter.had_error);
+        let mut scanner = Scanner::new(prompt.lines());
+        let result: Vec<_> = scanner.collect_tokens(&mut interpreter);
+        assert!(!interpreter.had_error);
         for token in result {
             assert!({
                 let Token { token_type, .. } = token;
@@ -447,9 +479,9 @@ mod tests {
         let prompt = "
         my ident
         ";
-        let mut scanner = Scanner::new(&mut interpreter, prompt.lines());
-        let result: Vec<_> = scanner.collect_tokens();
-        assert!(!scanner.interpreter.had_error);
+        let mut scanner = Scanner::new(prompt.lines());
+        let result: Vec<_> = scanner.collect_tokens(&mut interpreter);
+        assert!(!interpreter.had_error);
         for token in result {
             assert!({
                 let Token { token_type, .. } = token;
@@ -467,9 +499,9 @@ mod tests {
         let prompt = "
         589565,22
         ";
-        let mut scanner = Scanner::new(&mut interpreter, prompt.lines());
-        let _: Vec<_> = scanner.collect_tokens();
-        assert!(scanner.interpreter.had_error);
+        let mut scanner = Scanner::new(prompt.lines());
+        let _: Vec<_> = scanner.collect_tokens(&mut interpreter);
+        assert!(interpreter.had_error);
     }
 
     #[test]
@@ -478,9 +510,9 @@ mod tests {
         let prompt = "
         589565.22
         ";
-        let mut scanner = Scanner::new(&mut interpreter, prompt.lines());
-        let result: Vec<_> = scanner.collect_tokens();
-        assert!(!scanner.interpreter.had_error);
+        let mut scanner = Scanner::new(prompt.lines());
+        let result: Vec<_> = scanner.collect_tokens(&mut interpreter);
+        assert!(!interpreter.had_error);
         for token in result {
             assert!({
                 let Token { token_type, .. } = token;
@@ -501,16 +533,14 @@ mod tests {
             end of comment */
         identifier
         ";
-        let mut scanner = Scanner::new(&mut interpreter, prompt.lines());
-        let result: Vec<_> = scanner.collect_tokens();
-        assert!(!scanner.interpreter.had_error);
+        let mut scanner = Scanner::new(prompt.lines());
+        let result: Vec<_> = scanner.collect_tokens(&mut interpreter);
+        assert!(!interpreter.had_error);
         for token in result {
             assert!({
                 let Token { token_type, .. } = token;
                 match token_type {
-                    Identifier(value) => {
-                        value == "my" || value == "code" || value == "identifier"
-                    }
+                    Identifier(value) => value == "my" || value == "code" || value == "identifier",
                     _ => false,
                 }
             });

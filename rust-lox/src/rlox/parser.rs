@@ -1,10 +1,13 @@
 use crate::rlox::interpreter::RLox;
 use crate::rlox::parser::Expr::{Binary, Grouping, Unary};
 use crate::rlox::scanner::Scanner;
-use crate::rlox::token::TokenType::{BangEqual, Equal, Greater, GreaterEqual, Less, LessEqual, Minus, Plus, Slash, Star, Bang, False, True, Nil, Number, FloatNumber, StringToken, LeftParen, RightParen};
+use crate::rlox::token::TokenType::{
+    Bang, BangEqual, Equal, False, FloatNumber, Greater, GreaterEqual, LeftParen, Less, LessEqual,
+    Minus, Nil, Number, Plus, RightParen, Slash, Star, StringToken, True,
+};
 use crate::rlox::token::{Token, TokenType};
-use std::iter::Peekable;
 
+#[derive(Debug)]
 enum Literal {
     Number(u64),
     FloatNumber(f64),
@@ -14,6 +17,7 @@ enum Literal {
     Nil,
 }
 
+#[derive(Debug)]
 enum Expr {
     Literal(Literal),
     Binary {
@@ -33,17 +37,17 @@ enum Expr {
     },
 }
 
-struct Parser<'a> {
-    tokens: Peekable<Scanner<'a>>,
-    buffer: Vec<Token>,
-    interpreter: &'a mut RLox,
+struct Parser<'src, 'lox> {
+    scanner: Scanner<'src>,
+    current_token: Option<Token>,
+    interpreter: &'lox mut RLox,
 }
 
-impl<'a> Parser<'a> {
-    fn new(scanner: Scanner<'a>, interpreter: &'a mut RLox) -> Parser<'a> {
+impl<'src, 'lox> Parser<'src, 'lox> {
+    fn new(scanner: Scanner<'src>, interpreter: &'lox mut RLox) -> Parser<'src, 'lox> {
         Parser {
-            tokens: scanner.peekable(),
-            buffer: vec![],
+            scanner,
+            current_token: None,
             interpreter,
         }
     }
@@ -121,7 +125,7 @@ impl<'a> Parser<'a> {
     }
 
     fn primary(&mut self) -> Option<Expr> {
-        let next = self.peek()?;
+        let next = self.advance()?;
         let line = next.line;
         match next.token_type.clone() {
             False => Some(Expr::Literal(Literal::False)),
@@ -155,10 +159,19 @@ impl<'a> Parser<'a> {
         }
     }
     fn peek(&mut self) -> Option<&Token> {
-        self.tokens.peek()
+        if self.current_token.is_none() {
+            self.current_token = self.scanner.scan_token(self.interpreter);
+        }
+        self.current_token.as_ref()
     }
+
     fn advance(&mut self) -> Option<Token> {
-        self.tokens.next()
+        let token = self.current_token.take();
+        if token.is_none() {
+            self.scanner.scan_token(self.interpreter)
+        } else {
+            token
+        }
     }
 
     fn check(&mut self, token_type: &TokenType) -> bool {
@@ -184,5 +197,22 @@ impl<'a> Parser<'a> {
             return self.advance();
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rlox::*;
+
+    #[test]
+    fn it_works() {
+        let mut interpreter = RLox { had_error: false };
+        let prompt = "(1+2)
+        ";
+        let scanner = Scanner::new(prompt.lines());
+        let mut parser = Parser::new(scanner, &mut interpreter);
+        let result = parser.equality();
+        println!("result: {result:?}");
     }
 }

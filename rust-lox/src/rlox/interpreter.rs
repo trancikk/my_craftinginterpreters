@@ -1,5 +1,4 @@
 use crate::rlox::scanner::Scanner;
-use crate::rlox::token::Token;
 use std::fs::File;
 use std::io;
 use std::io::{Read, Write};
@@ -42,8 +41,8 @@ impl RLox {
 
     pub fn run(&mut self, code: &str) -> anyhow::Result<()> {
         let lines = code.lines();
-        let scanner = Scanner::new(self, lines);
-        let _: Vec<Token> = scanner.collect();
+        let scanner = Scanner::new(lines);
+        // let _: Vec<Token> = scanner.collect(self);
         Ok(())
     }
 
