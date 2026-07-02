@@ -27,11 +27,11 @@ impl<'a> Scanner<'a> {
     pub fn next_line(&mut self) -> Option<&str> {
         let next_line = self.lines.next();
         self.current_line = next_line;
-        if let Some(_) = next_line {
+        if next_line.is_some() {
             self.line_index += 1;
             self.current_position = 0;
         } else {
-            self.end_is_reached = true
+            self.end_is_reached = true;
         }
 
         next_line
@@ -96,15 +96,14 @@ impl<'a> Scanner<'a> {
         'outer: while let Some(line) = self.current_line {
             let chars = line[self.current_position..].chars();
             for c in chars {
-                if c != ch {
-                    buf.push(c);
-                    self.advance_by_char(c);
-                } else {
+                if c == ch {
                     if inclusive {
                         self.advance_by_char(c);
                     }
                     break 'outer;
                 }
+                buf.push(c);
+                self.advance_by_char(c);
             }
             self.next_line();
             buf.push('\n')
@@ -125,11 +124,10 @@ impl<'a> Scanner<'a> {
             let chars = line[self.current_position..].chars();
             for ch in chars {
                 self.advance_by_char(ch);
-                if !ch.is_whitespace() {
-                    result.push(ch);
-                } else {
+                if ch.is_whitespace() {
                     break;
                 }
+                result.push(ch);
             }
         }
 
@@ -266,7 +264,6 @@ impl<'a> Scanner<'a> {
                     match next_char {
                         Some('/') => {
                             self.next_line()?;
-                            continue;
                         }
                         Some('*') => loop {
                             self.advance_until_char('*');
@@ -275,14 +272,7 @@ impl<'a> Scanner<'a> {
                                 continue 'outer;
                             }
                         },
-                        Some(_) => {
-                            return Some(Token::new(
-                                TokenType::Slash,
-                                ch.to_string(),
-                                self.line_index,
-                            ));
-                        }
-                        None => {
+                        Some(_) | None => {
                             return Some(Token::new(
                                 TokenType::Slash,
                                 ch.to_string(),
@@ -291,7 +281,7 @@ impl<'a> Scanner<'a> {
                         }
                     }
                 }
-                ' ' | '\r' | '\t' => continue,
+                ' ' | '\r' | '\t' => {}
                 '\n' => {
                     self.next_line();
                 }
@@ -317,7 +307,7 @@ impl<'a> Scanner<'a> {
                     self.step_back();
                     let digits = self.advance_chars_until_whitespace();
                     let digits: String = String::from_iter(digits);
-                    if let Ok(number) = digits.parse::<i64>() {
+                    if let Ok(number) = digits.parse::<u64>() {
                         return Some(Token::new(
                             TokenType::Number(number),
                             number.to_string(),
@@ -329,10 +319,9 @@ impl<'a> Scanner<'a> {
                             number.to_string(),
                             self.line_index,
                         ));
-                    } else {
-                        self.interpreter
-                            .error(self.line_index, &format!("Incorrect number! {:?}", digits));
                     }
+                    self.interpreter
+                        .error(self.line_index, &format!("Incorrect number! {digits:?}"));
                 }
                 alpha if alpha.is_alphabetic() => {
                     self.step_back();
@@ -360,7 +349,7 @@ impl<'a> Scanner<'a> {
     pub fn collect_tokens(&mut self) -> Vec<Token> {
         let mut v = vec![];
         for token in self {
-            v.push(token)
+            v.push(token);
         }
         v
     }
@@ -386,7 +375,7 @@ mod tests {
         ";
         let scanner = Scanner::new(&mut interpreter, prompt.lines());
         for token in scanner {
-            println!("{}", token)
+            println!("{token}");
         }
     }
 
@@ -411,7 +400,7 @@ mod tests {
         let result: Vec<_> = scanner.collect_tokens();
         assert!(!scanner.interpreter.had_error);
         for token in result {
-            println!("{:?}", token)
+            println!("{token:?}");
         }
     }
 
@@ -425,12 +414,11 @@ mod tests {
         let result: Vec<_> = scanner.collect_tokens();
         assert!(!scanner.interpreter.had_error);
         for token in result {
-            assert!(match token {
-                Token { token_type, .. } => {
-                    match token_type {
-                        Number(value) => value == 589565,
-                        _ => false,
-                    }
+            assert!({
+                let Token { token_type, .. } = token;
+                match token_type {
+                    Number(value) => value == 589_565,
+                    _ => false,
                 }
             });
         }
@@ -446,13 +434,9 @@ mod tests {
         let result: Vec<_> = scanner.collect_tokens();
         assert!(!scanner.interpreter.had_error);
         for token in result {
-            assert!(match token {
-                Token { token_type, .. } => {
-                    match token_type {
-                        While => true,
-                        _ => false,
-                    }
-                }
+            assert!({
+                let Token { token_type, .. } = token;
+                matches!(token_type, While)
             });
         }
     }
@@ -467,12 +451,11 @@ mod tests {
         let result: Vec<_> = scanner.collect_tokens();
         assert!(!scanner.interpreter.had_error);
         for token in result {
-            assert!(match token {
-                Token { token_type, .. } => {
-                    match token_type {
-                        TokenType::Identifier(value) => value == "my" || value == "ident",
-                        _ => false,
-                    }
+            assert!({
+                let Token { token_type, .. } = token;
+                match token_type {
+                    Identifier(value) => value == "my" || value == "ident",
+                    _ => false,
                 }
             });
         }
@@ -499,12 +482,11 @@ mod tests {
         let result: Vec<_> = scanner.collect_tokens();
         assert!(!scanner.interpreter.had_error);
         for token in result {
-            assert!(match token {
-                Token { token_type, .. } => {
-                    match token_type {
-                        FloatNumber(value) => value == 589565.22,
-                        _ => false,
-                    }
+            assert!({
+                let Token { token_type, .. } = token;
+                match token_type {
+                    FloatNumber(value) => value == 589565.22,
+                    _ => false,
                 }
             });
         }
@@ -523,14 +505,13 @@ mod tests {
         let result: Vec<_> = scanner.collect_tokens();
         assert!(!scanner.interpreter.had_error);
         for token in result {
-            assert!(match token {
-                Token { token_type, .. } => {
-                    match token_type {
-                        Identifier(value) => {
-                            value == "my" || value == "code" || value == "identifier"
-                        }
-                        _ => false,
+            assert!({
+                let Token { token_type, .. } = token;
+                match token_type {
+                    Identifier(value) => {
+                        value == "my" || value == "code" || value == "identifier"
                     }
+                    _ => false,
                 }
             });
         }

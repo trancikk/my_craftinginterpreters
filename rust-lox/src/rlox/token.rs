@@ -8,7 +8,7 @@ pub struct Token {
     lexeme: String,
     // TODO embed into token type enum value
     // literal: &'static dyn Any,
-    line: u64,
+    pub line: u64,
 }
 
 pub const RESERVED_KEYWORDS: LazyLock<HashMap<String, TokenType>> = LazyLock::new(|| {
@@ -52,7 +52,7 @@ impl Display for Token {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {
     // Single char token
     LeftParen,
@@ -80,7 +80,7 @@ pub enum TokenType {
     // Literals
     Identifier(String),
     StringToken(String),
-    Number(i64),
+    Number(u64),
     FloatNumber(f64),
 
     // Keywords
