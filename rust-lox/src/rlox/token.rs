@@ -2,10 +2,10 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::sync::LazyLock;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Token {
     pub token_type: TokenType,
-    lexeme: String,
+    pub lexeme: String,
     // TODO embed into token type enum value
     // literal: &'static dyn Any,
     pub line: u64,

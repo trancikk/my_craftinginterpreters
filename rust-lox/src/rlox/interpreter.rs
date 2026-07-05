@@ -1,4 +1,5 @@
 use crate::rlox::scanner::Scanner;
+use crate::rlox::token::Token;
 use std::fs::File;
 use std::io;
 use std::io::{Read, Write};
@@ -48,10 +49,15 @@ impl RLox {
 
     pub fn error(&mut self, line: u64, message: &str) {
         self.had_error = true;
-        self.report(line, "", message)
+        self.report(line, "", message);
     }
 
     pub fn report(&self, line: u64, where_location: &str, message: &str) {
-        eprintln!("[line {line}] Error {where_location}: {message}")
+        eprintln!("[line {line}] Error {where_location}: {message}");
+    }
+
+    pub fn report_token(&mut self, token: &Token, msg: &str) {
+        self.had_error = true;
+        eprintln!("{:?} at '{:?}' {:?}", token.line, token.lexeme, msg);
     }
 }

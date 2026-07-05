@@ -6,7 +6,7 @@ pub struct Scanner<'a> {
     lines: Lines<'a>,
     current_line: Option<&'a str>,
     current_position: usize,
-    line_index: u64,
+    pub line_index: u64,
     end_is_reached: bool,
 }
 

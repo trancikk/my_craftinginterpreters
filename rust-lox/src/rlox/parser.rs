@@ -136,7 +136,7 @@ impl<'src, 'lox> Parser<'src, 'lox> {
             StringToken(val) => Some(Expr::Literal(Literal::StringL(val.clone()))),
             LeftParen => {
                 let expr = self.expression()?;
-                self.consume(&RightParen, "Expect ')' after expression.");
+                self.consume(&RightParen, "Expect ')' after expression.")?;
                 Some(Grouping {
                     expr: Box::new(expr),
                 })
@@ -149,14 +149,19 @@ impl<'src, 'lox> Parser<'src, 'lox> {
     }
 
     fn consume(&mut self, token_type: &TokenType, message: &str) -> Option<Token> {
-        let next = self.peek()?;
-        let line = next.line;
-        if next.token_type == *token_type {
-            self.advance()
-        } else {
-            self.interpreter.error(line, message);
-            None
+        let next = self.peek().cloned();
+        if let Some(next) = next {
+            return if next.token_type == *token_type {
+                self.advance()
+            } else {
+                self.interpreter.report_token(&next, message);
+                None
+            };
         }
+        let line = self.scanner.line_index;
+        self.interpreter
+            .error(line, &format!("Reached EOF, expected {token_type:?}"));
+        None
     }
     fn peek(&mut self) -> Option<&Token> {
         if self.current_token.is_none() {
@@ -214,5 +219,29 @@ mod tests {
         let mut parser = Parser::new(scanner, &mut interpreter);
         let result = parser.equality();
         println!("result: {result:?}");
+    }
+
+    #[test]
+    fn it_doesnt_work_for_invalid_left_br() {
+        let mut interpreter = RLox { had_error: false };
+        let prompt = "((1+2)
+        ";
+        let scanner = Scanner::new(prompt.lines());
+        let mut parser = Parser::new(scanner, &mut interpreter);
+        let result = parser.equality();
+        println!("result: {result:?}");
+        assert!(interpreter.had_error);
+    }
+
+    #[test]
+    fn it_doesnt_work_for_invalid_right_brace() {
+        let mut interpreter = RLox { had_error: false };
+        let prompt = "(1+2))
+        ";
+        let scanner = Scanner::new(prompt.lines());
+        let mut parser = Parser::new(scanner, &mut interpreter);
+        let result = parser.expression();
+        println!("result: {result:?}");
+        assert!(interpreter.had_error);
     }
 }
