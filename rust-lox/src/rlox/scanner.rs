@@ -323,7 +323,7 @@ impl<'a> Scanner<'a> {
                 }
                 digit if digit.is_numeric() => {
                     self.step_back();
-                    let digits = self.advance_chars_until_fn(|x| !x.is_numeric());
+                    let digits = self.advance_chars_until_fn(|x| !x.is_numeric() && x != '.');
                     let digits: String = String::from_iter(digits);
                     if let Ok(number) = digits.parse::<u64>() {
                         return Some(Token::new(
@@ -498,8 +498,10 @@ mod tests {
         589565,22
         ";
         let mut scanner = Scanner::new(prompt.lines());
-        let _: Vec<_> = scanner.collect_tokens(&mut interpreter);
-        assert!(interpreter.had_error);
+        let result: Vec<_> = scanner.collect_tokens(&mut interpreter);
+        assert!(!interpreter.had_error);
+        assert!(!result.is_empty());
+        assert_eq!(result.first().unwrap().token_type, Number(589_565));
     }
 
     #[test]
