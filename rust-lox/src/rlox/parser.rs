@@ -3,7 +3,7 @@ use crate::rlox::parser::Expr::{Binary, Grouping, Unary};
 use crate::rlox::scanner::Scanner;
 use crate::rlox::token::TokenType::{
     Bang, BangEqual, Equal, False, FloatNumber, Greater, GreaterEqual, LeftParen, Less, LessEqual,
-    Minus, Nil, Number, Plus, RightParen, Slash, Star, StringToken, True,
+    Minus, Nil, Number, Plus, RightParen, Semicolon, Slash, Star, StringToken, True,
 };
 use crate::rlox::token::{Token, TokenType};
 
@@ -37,19 +37,23 @@ enum Expr {
     },
 }
 
-struct Parser<'src, 'lox> {
+pub struct Parser<'src, 'lox> {
     scanner: Scanner<'src>,
     current_token: Option<Token>,
     interpreter: &'lox mut RLox,
 }
 
 impl<'src, 'lox> Parser<'src, 'lox> {
-    fn new(scanner: Scanner<'src>, interpreter: &'lox mut RLox) -> Parser<'src, 'lox> {
+    pub fn new(scanner: Scanner<'src>, interpreter: &'lox mut RLox) -> Parser<'src, 'lox> {
         Parser {
             scanner,
             current_token: None,
             interpreter,
         }
+    }
+
+    pub fn parse(&mut self) {
+        while self.expression().is_some() {}
     }
 
     fn expression(&mut self) -> Option<Expr> {
@@ -126,7 +130,6 @@ impl<'src, 'lox> Parser<'src, 'lox> {
 
     fn primary(&mut self) -> Option<Expr> {
         let next = self.advance()?;
-        let line = next.line;
         match next.token_type.clone() {
             False => Some(Expr::Literal(Literal::False)),
             True => Some(Expr::Literal(Literal::True)),
@@ -142,7 +145,8 @@ impl<'src, 'lox> Parser<'src, 'lox> {
                 })
             }
             _ => {
-                self.interpreter.report(line, "", "Syntax error!");
+                self.interpreter
+                    .report_token(&next, "Syntax error! Expected expression");
                 None
             }
         }
@@ -170,6 +174,28 @@ impl<'src, 'lox> Parser<'src, 'lox> {
         self.current_token.as_ref()
     }
 
+    fn synchronize(&mut self) -> Option<Token> {
+        while let Some(token) = self.scanner.scan_token(self.interpreter) {
+            if token.token_type == Semicolon {
+                if let Some(next) = self.peek() {
+                    match next.token_type {
+                        TokenType::Class
+                        | TokenType::Fun
+                        | TokenType::Var
+                        | TokenType::For
+                        | TokenType::If
+                        | TokenType::While
+                        | TokenType::Print
+                        | TokenType::Return => return self.advance(),
+                        _ => {}
+                    }
+                } else {
+                    return None;
+                }
+            }
+        }
+        None
+    }
     fn advance(&mut self) -> Option<Token> {
         let token = self.current_token.take();
         if token.is_none() {
@@ -222,6 +248,16 @@ mod tests {
     }
 
     #[test]
+    fn it_works2() {
+        let mut interpreter = RLox { had_error: false };
+        let prompt = "1+2\n";
+        let scanner = Scanner::new(prompt.lines());
+        let mut parser = Parser::new(scanner, &mut interpreter);
+        let result = parser.equality();
+        println!("result: {result:?}");
+    }
+
+    #[test]
     fn it_doesnt_work_for_invalid_left_br() {
         let mut interpreter = RLox { had_error: false };
         let prompt = "((1+2)
@@ -236,12 +272,12 @@ mod tests {
     #[test]
     fn it_doesnt_work_for_invalid_right_brace() {
         let mut interpreter = RLox { had_error: false };
-        let prompt = "(1+2))
+        let prompt = "(1+2)
+        )
         ";
         let scanner = Scanner::new(prompt.lines());
         let mut parser = Parser::new(scanner, &mut interpreter);
-        let result = parser.expression();
-        println!("result: {result:?}");
+        parser.parse();
         assert!(interpreter.had_error);
     }
 }

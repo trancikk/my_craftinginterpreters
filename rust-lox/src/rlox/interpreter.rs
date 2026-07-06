@@ -1,3 +1,4 @@
+use crate::rlox::parser::Parser;
 use crate::rlox::scanner::Scanner;
 use crate::rlox::token::Token;
 use std::fs::File;
@@ -43,6 +44,8 @@ impl RLox {
     pub fn run(&mut self, code: &str) -> anyhow::Result<()> {
         let lines = code.lines();
         let scanner = Scanner::new(lines);
+        let mut parser = Parser::new(scanner, self);
+        parser.parse();
         // let _: Vec<Token> = scanner.collect(self);
         Ok(())
     }
@@ -59,5 +62,18 @@ impl RLox {
     pub fn report_token(&mut self, token: &Token, msg: &str) {
         self.had_error = true;
         eprintln!("{:?} at '{:?}' {:?}", token.line, token.lexeme, msg);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn it_works() {
+        let mut rlox = RLox { had_error: false };
+        let result = rlox.run("1+2");
+        assert!(result.is_ok());
+        assert!(!rlox.had_error);
     }
 }

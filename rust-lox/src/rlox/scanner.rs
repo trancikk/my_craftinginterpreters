@@ -115,17 +115,15 @@ impl<'a> Scanner<'a> {
         F: Fn(char) -> bool,
     {
         let mut buf = vec![];
-        'outer: while let Some(line) = self.current_line {
+        if let Some(line) = self.current_line {
             let chars = line[self.current_position..].chars();
             for c in chars {
                 if predicate(c) {
-                    break 'outer;
+                    break;
                 }
                 buf.push(c);
                 self.advance_by_char(c);
             }
-            self.next_line();
-            buf.push('\n');
         }
 
         buf
