@@ -59,6 +59,8 @@ pub enum TokenType {
     RightParen,
     LeftBrace,
     RightBrace,
+    Question,
+    Colon,
     Comma,
     Dot,
     Minus,

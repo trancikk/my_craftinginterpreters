@@ -205,6 +205,20 @@ impl<'a> Scanner<'a> {
                         self.line_index,
                     ));
                 }
+                '?' => {
+                    return Some(Token::new(
+                        TokenType::Question,
+                        ch.to_string(),
+                        self.line_index,
+                    ));
+                }
+                ':' => {
+                    return Some(Token::new(
+                        TokenType::Colon,
+                        ch.to_string(),
+                        self.line_index,
+                    ));
+                }
                 ',' => {
                     return Some(Token::new(
                         TokenType::Comma,

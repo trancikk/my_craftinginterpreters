@@ -2,8 +2,8 @@ use crate::rlox::interpreter::RLox;
 use crate::rlox::parser::Expr::{Binary, Grouping, Unary};
 use crate::rlox::scanner::Scanner;
 use crate::rlox::token::TokenType::{
-    Bang, BangEqual, Equal, False, FloatNumber, Greater, GreaterEqual, LeftParen, Less, LessEqual,
-    Minus, Nil, Number, Plus, RightParen, Semicolon, Slash, Star, StringToken, True,
+    Bang, BangEqual, Comma, Equal, False, FloatNumber, Greater, GreaterEqual, LeftParen, Less,
+    LessEqual, Minus, Nil, Number, Plus, RightParen, Semicolon, Slash, Star, StringToken, True,
 };
 use crate::rlox::token::{Token, TokenType};
 
@@ -57,7 +57,11 @@ impl<'src, 'lox> Parser<'src, 'lox> {
     }
 
     fn expression(&mut self) -> Option<Expr> {
-        self.equality()
+        let mut exp = self.equality()?;
+        while self.match_and_return(&Comma).is_some() {
+            exp = self.equality()?;
+        }
+        Some(exp)
     }
 
     fn equality(&mut self) -> Option<Expr> {
@@ -213,6 +217,14 @@ impl<'src, 'lox> Parser<'src, 'lox> {
         }
     }
 
+    fn match_and_return(&mut self, token_type: &TokenType) -> Option<Token> {
+        let token = self.peek()?;
+        if token.token_type == *token_type {
+            return self.advance();
+        }
+        None
+    }
+
     fn match_any(&mut self, token_types: &[TokenType]) -> bool {
         if let Some(next) = self.peek() {
             token_types.contains(&next.token_type)
@@ -235,6 +247,7 @@ impl<'src, 'lox> Parser<'src, 'lox> {
 mod tests {
     use super::*;
     use crate::rlox::*;
+    use std::ops::Deref;
 
     #[test]
     fn it_works() {
@@ -255,6 +268,24 @@ mod tests {
         let mut parser = Parser::new(scanner, &mut interpreter);
         let result = parser.equality();
         println!("result: {result:?}");
+    }
+
+    #[test]
+    fn it_works_for_comma_expr() {
+        let mut interpreter = RLox { had_error: false };
+        let prompt = "1+2 , 2 + 3\n";
+        let scanner = Scanner::new(prompt.lines());
+        let mut parser = Parser::new(scanner, &mut interpreter);
+        let result = parser.expression();
+        println!("result: {result:?}");
+        let result = result.unwrap();
+        if let Binary { left, op, right } = result {
+            assert_eq!(op.token_type, Plus);
+            // let left = *left;
+            // let right = *right;
+        } else {
+            panic!("Expected 2+3, got: {result:?}")
+        }
     }
 
     #[test]
