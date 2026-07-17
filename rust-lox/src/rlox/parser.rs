@@ -2,8 +2,9 @@ use crate::rlox::interpreter::RLox;
 use crate::rlox::parser::Expr::{Binary, Grouping, Unary};
 use crate::rlox::scanner::Scanner;
 use crate::rlox::token::TokenType::{
-    Bang, BangEqual, Comma, Equal, False, FloatNumber, Greater, GreaterEqual, LeftParen, Less,
-    LessEqual, Minus, Nil, Number, Plus, RightParen, Semicolon, Slash, Star, StringToken, True,
+    Bang, BangEqual, Comma, Equal, EqualEqual, False, FloatNumber, Greater, GreaterEqual,
+    LeftParen, Less, LessEqual, Minus, Nil, Number, Plus, RightParen, Semicolon, Slash, Star,
+    StringToken, True,
 };
 use crate::rlox::token::{Token, TokenType};
 
@@ -58,8 +59,13 @@ impl<'src, 'lox> Parser<'src, 'lox> {
 
     fn expression(&mut self) -> Option<Expr> {
         let mut exp = self.equality()?;
-        while self.match_and_return(&Comma).is_some() {
-            exp = self.equality()?;
+        while let Some(coma) = self.match_and_return(&Comma) {
+            let right = self.equality()?;
+            exp = Binary {
+                left: Box::new(exp),
+                op: coma,
+                right: Box::new(right),
+            }
         }
         Some(exp)
     }
@@ -67,7 +73,7 @@ impl<'src, 'lox> Parser<'src, 'lox> {
     fn equality(&mut self) -> Option<Expr> {
         let mut exp = self.comparison()?;
 
-        while let Some(item) = self.match_any_and_return(&[BangEqual, Equal]) {
+        while let Some(item) = self.match_any_and_return(&[BangEqual, EqualEqual]) {
             let right = self.comparison()?;
             exp = Binary {
                 left: Box::new(exp),
@@ -279,12 +285,25 @@ mod tests {
         let result = parser.expression();
         println!("result: {result:?}");
         let result = result.unwrap();
-        if let Binary { left, op, right } = result {
-            assert_eq!(op.token_type, Plus);
+        if let Binary { left: _, op, right } = result {
+            assert_eq!(op.token_type, Comma);
+
+            if let Binary { left, op, right: _ } = *right {
+                assert_eq!(op.token_type, Plus);
+                if let Expr::Literal(val) = *left {
+                    if let Literal::Number(val) = val {
+                        assert_eq!(val, 2);
+                    } else {
+                        panic!("Expected number, got {val:?}");
+                    }
+                } else {
+                    panic!("Expected literal, got {left:?}");
+                }
+            }
             // let left = *left;
             // let right = *right;
         } else {
-            panic!("Expected 2+3, got: {result:?}")
+            panic!("Expected Coma, got: {result:?}")
         }
     }
 
