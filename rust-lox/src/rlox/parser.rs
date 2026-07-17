@@ -2,9 +2,8 @@ use crate::rlox::interpreter::RLox;
 use crate::rlox::parser::Expr::{Binary, Grouping, Unary};
 use crate::rlox::scanner::Scanner;
 use crate::rlox::token::TokenType::{
-    Bang, BangEqual, Comma, Equal, EqualEqual, False, FloatNumber, Greater, GreaterEqual,
-    LeftParen, Less, LessEqual, Minus, Nil, Number, Plus, RightParen, Semicolon, Slash, Star,
-    StringToken, True,
+    Bang, BangEqual, Comma, EqualEqual, False, FloatNumber, Greater, GreaterEqual, LeftParen, Less,
+    LessEqual, Minus, Nil, Number, Plus, RightParen, Semicolon, Slash, Star, StringToken, True,
 };
 use crate::rlox::token::{Token, TokenType};
 
@@ -252,82 +251,542 @@ impl<'src, 'lox> Parser<'src, 'lox> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rlox::*;
-    use std::ops::Deref;
 
-    #[test]
-    fn it_works() {
+    fn parse_expression(input: &str) -> (Option<Expr>, RLox) {
         let mut interpreter = RLox { had_error: false };
-        let prompt = "(1+2)
-        ";
-        let scanner = Scanner::new(prompt.lines());
-        let mut parser = Parser::new(scanner, &mut interpreter);
-        let result = parser.equality();
-        println!("result: {result:?}");
-    }
-
-    #[test]
-    fn it_works2() {
-        let mut interpreter = RLox { had_error: false };
-        let prompt = "1+2\n";
-        let scanner = Scanner::new(prompt.lines());
-        let mut parser = Parser::new(scanner, &mut interpreter);
-        let result = parser.equality();
-        println!("result: {result:?}");
-    }
-
-    #[test]
-    fn it_works_for_comma_expr() {
-        let mut interpreter = RLox { had_error: false };
-        let prompt = "1+2 , 2 + 3\n";
-        let scanner = Scanner::new(prompt.lines());
+        let scanner = Scanner::new(input.lines());
         let mut parser = Parser::new(scanner, &mut interpreter);
         let result = parser.expression();
-        println!("result: {result:?}");
-        let result = result.unwrap();
-        if let Binary { left: _, op, right } = result {
-            assert_eq!(op.token_type, Comma);
+        (result, interpreter)
+    }
 
-            if let Binary { left, op, right: _ } = *right {
-                assert_eq!(op.token_type, Plus);
-                if let Expr::Literal(val) = *left {
-                    if let Literal::Number(val) = val {
-                        assert_eq!(val, 2);
-                    } else {
-                        panic!("Expected number, got {val:?}");
-                    }
-                } else {
-                    panic!("Expected literal, got {left:?}");
-                }
-            }
-            // let left = *left;
-            // let right = *right;
-        } else {
-            panic!("Expected Coma, got: {result:?}")
+    fn parse_ok(input: &str) -> Expr {
+        let (result, interpreter) = parse_expression(input);
+        assert!(
+            !interpreter.had_error,
+            "unexpected parse error for {input:?}"
+        );
+        result.unwrap_or_else(|| panic!("expected expression for {input:?}"))
+    }
+
+    fn parse_fails(input: &str) {
+        let (result, interpreter) = parse_expression(input);
+        assert!(
+            interpreter.had_error || result.is_none(),
+            "expected parse failure for {input:?}, got {result:?}"
+        );
+    }
+
+    macro_rules! parsed {
+        ($input:expr, |$e:ident| $body:expr) => {{
+            let $e = parse_ok($input);
+            $body
+        }};
+    }
+
+    fn as_binary(expr: &Expr) -> (&Expr, TokenType, &Expr) {
+        match expr {
+            Binary { left, op, right } => (left, op.token_type.clone(), right),
+            other => panic!("expected binary expression, got {other:?}"),
         }
     }
 
-    #[test]
-    fn it_doesnt_work_for_invalid_left_br() {
-        let mut interpreter = RLox { had_error: false };
-        let prompt = "((1+2)
-        ";
-        let scanner = Scanner::new(prompt.lines());
-        let mut parser = Parser::new(scanner, &mut interpreter);
-        let result = parser.equality();
-        println!("result: {result:?}");
-        assert!(interpreter.had_error);
+    fn as_unary(expr: &Expr) -> (TokenType, &Expr) {
+        match expr {
+            Unary { op, right } => (op.token_type.clone(), right),
+            other => panic!("expected unary expression, got {other:?}"),
+        }
     }
 
-    #[test]
-    fn it_doesnt_work_for_invalid_right_brace() {
-        let mut interpreter = RLox { had_error: false };
-        let prompt = "(1+2)
-        )
-        ";
-        let scanner = Scanner::new(prompt.lines());
-        let mut parser = Parser::new(scanner, &mut interpreter);
-        parser.parse();
-        assert!(interpreter.had_error);
+    fn as_grouping(expr: &Expr) -> &Expr {
+        match expr {
+            Grouping { expr } => expr,
+            other => panic!("expected grouping expression, got {other:?}"),
+        }
+    }
+
+    fn as_number(expr: &Expr) -> u64 {
+        match expr {
+            Expr::Literal(Literal::Number(n)) => *n,
+            other => panic!("expected number literal, got {other:?}"),
+        }
+    }
+
+    fn as_float(expr: &Expr) -> f64 {
+        match expr {
+            Expr::Literal(Literal::FloatNumber(n)) => *n,
+            other => panic!("expected float literal, got {other:?}"),
+        }
+    }
+
+    fn as_string(expr: &Expr) -> &str {
+        match expr {
+            Expr::Literal(Literal::StringL(s)) => s.as_str(),
+            other => panic!("expected string literal, got {other:?}"),
+        }
+    }
+
+    mod literals {
+        use super::*;
+
+        #[test]
+        fn parses_integer() {
+            parsed!("42", |expr| {
+                assert_eq!(as_number(&expr), 42);
+            });
+        }
+
+        #[test]
+        fn parses_float() {
+            parsed!("3.14", |expr| {
+                assert!((as_float(&expr) - 3.14).abs() < f64::EPSILON);
+            });
+        }
+
+        #[test]
+        fn parses_string() {
+            parsed!("\"hello\"", |expr| {
+                assert_eq!(as_string(&expr), "hello");
+            });
+        }
+
+        #[test]
+        fn parses_true() {
+            assert!(matches!(parse_ok("true"), Expr::Literal(Literal::True)));
+        }
+
+        #[test]
+        fn parses_false() {
+            assert!(matches!(parse_ok("false"), Expr::Literal(Literal::False)));
+        }
+
+        #[test]
+        fn parses_nil() {
+            assert!(matches!(parse_ok("nil"), Expr::Literal(Literal::Nil)));
+        }
+    }
+
+    mod binary_operators {
+        use super::*;
+
+        #[test]
+        fn parses_addition() {
+            parsed!("1 + 2", |expr| {
+                let (left, op, right) = as_binary(&expr);
+                assert_eq!(op, Plus);
+                assert_eq!(as_number(left), 1);
+                assert_eq!(as_number(right), 2);
+            });
+        }
+
+        #[test]
+        fn parses_subtraction() {
+            parsed!("5 - 3", |expr| {
+                let (_, op, _) = as_binary(&expr);
+                assert_eq!(op, Minus);
+            });
+        }
+
+        #[test]
+        fn parses_multiplication() {
+            parsed!("3 * 4", |expr| {
+                let (_, op, _) = as_binary(&expr);
+                assert_eq!(op, Star);
+            });
+        }
+
+        #[test]
+        fn parses_division() {
+            parsed!("8 / 2", |expr| {
+                let (_, op, _) = as_binary(&expr);
+                assert_eq!(op, Slash);
+            });
+        }
+
+        #[test]
+        fn parses_equality() {
+            parsed!("1 == 2", |expr| {
+                let (_, op, _) = as_binary(&expr);
+                assert_eq!(op, EqualEqual);
+            });
+        }
+
+        #[test]
+        fn parses_inequality() {
+            parsed!("1 != 2", |expr| {
+                let (_, op, _) = as_binary(&expr);
+                assert_eq!(op, BangEqual);
+            });
+        }
+
+        #[test]
+        fn parses_less_than() {
+            parsed!("1 < 2", |expr| {
+                let (_, op, _) = as_binary(&expr);
+                assert_eq!(op, Less);
+            });
+        }
+
+        #[test]
+        fn parses_less_equal() {
+            parsed!("1 <= 2", |expr| {
+                let (_, op, _) = as_binary(&expr);
+                assert_eq!(op, LessEqual);
+            });
+        }
+
+        #[test]
+        fn parses_greater_than() {
+            parsed!("2 > 1", |expr| {
+                let (_, op, _) = as_binary(&expr);
+                assert_eq!(op, Greater);
+            });
+        }
+
+        #[test]
+        fn parses_greater_equal() {
+            parsed!("2 >= 1", |expr| {
+                let (_, op, _) = as_binary(&expr);
+                assert_eq!(op, GreaterEqual);
+            });
+        }
+
+        #[test]
+        fn parses_chained_addition_left_associative() {
+            parsed!("1 + 2 + 3", |expr| {
+                let (left, op, right) = as_binary(&expr);
+                assert_eq!(op, Plus);
+                assert_eq!(as_number(right), 3);
+                let (inner_left, inner_op, inner_right) = as_binary(left);
+                assert_eq!(inner_op, Plus);
+                assert_eq!(as_number(inner_left), 1);
+                assert_eq!(as_number(inner_right), 2);
+            });
+        }
+
+        #[test]
+        fn parses_chained_equality_left_associative() {
+            parsed!("1 == 2 == 3", |expr| {
+                let (left, op, right) = as_binary(&expr);
+                assert_eq!(op, EqualEqual);
+                assert_eq!(as_number(right), 3);
+                let (_, inner_op, _) = as_binary(left);
+                assert_eq!(inner_op, EqualEqual);
+            });
+        }
+    }
+
+    mod precedence {
+        use super::*;
+
+        #[test]
+        fn multiplication_binds_tighter_than_addition() {
+            parsed!("1 + 2 * 3", |expr| {
+                let (left, op, right) = as_binary(&expr);
+                assert_eq!(op, Plus);
+                assert_eq!(as_number(left), 1);
+                let (_, mul_op, _) = as_binary(right);
+                assert_eq!(mul_op, Star);
+            });
+        }
+
+        #[test]
+        fn addition_binds_looser_than_multiplication() {
+            parsed!("1 * 2 + 3", |expr| {
+                let (left, op, right) = as_binary(&expr);
+                assert_eq!(op, Plus);
+                assert_eq!(as_number(right), 3);
+                let (_, mul_op, _) = as_binary(left);
+                assert_eq!(mul_op, Star);
+            });
+        }
+
+        #[test]
+        fn addition_binds_tighter_than_equality() {
+            parsed!("1 + 2 == 3", |expr| {
+                let (left, op, right) = as_binary(&expr);
+                assert_eq!(op, EqualEqual);
+                assert_eq!(as_number(right), 3);
+                let (_, add_op, _) = as_binary(left);
+                assert_eq!(add_op, Plus);
+            });
+        }
+
+        #[test]
+        fn comparison_binds_tighter_than_equality() {
+            parsed!("1 < 2 == 3", |expr| {
+                let (left, op, right) = as_binary(&expr);
+                assert_eq!(op, EqualEqual);
+                assert_eq!(as_number(right), 3);
+                let (_, cmp_op, _) = as_binary(left);
+                assert_eq!(cmp_op, Less);
+            });
+        }
+
+        #[test]
+        fn term_binds_tighter_than_comparison() {
+            parsed!("1 + 2 < 3", |expr| {
+                let (left, op, right) = as_binary(&expr);
+                assert_eq!(op, Less);
+                assert_eq!(as_number(right), 3);
+                let (_, add_op, _) = as_binary(left);
+                assert_eq!(add_op, Plus);
+            });
+        }
+    }
+
+    mod unary {
+        use super::*;
+
+        #[test]
+        fn parses_negation() {
+            parsed!("-1", |expr| {
+                let (op, right) = as_unary(&expr);
+                assert_eq!(op, Minus);
+                assert_eq!(as_number(right), 1);
+            });
+        }
+
+        #[test]
+        fn parses_logical_not() {
+            parsed!("!true", |expr| {
+                let (op, right) = as_unary(&expr);
+                assert_eq!(op, Bang);
+                assert!(matches!(right, Expr::Literal(Literal::True)));
+            });
+        }
+
+        #[test]
+        fn parses_nested_unary_right_associative() {
+            parsed!("--1", |expr| {
+                let (outer_op, inner) = as_unary(&expr);
+                assert_eq!(outer_op, Minus);
+                let (inner_op, right) = as_unary(inner);
+                assert_eq!(inner_op, Minus);
+                assert_eq!(as_number(right), 1);
+            });
+        }
+
+        #[test]
+        fn unary_binds_tighter_than_multiplication() {
+            parsed!("-1 * 2", |expr| {
+                let (left, op, right) = as_binary(&expr);
+                assert_eq!(op, Star);
+                let (unary_op, _) = as_unary(left);
+                assert_eq!(unary_op, Minus);
+                assert_eq!(as_number(right), 2);
+            });
+        }
+
+        #[test]
+        fn unary_binds_tighter_than_equality() {
+            parsed!("!true == false", |expr| {
+                let (left, op, right) = as_binary(&expr);
+                assert_eq!(op, EqualEqual);
+                let (bang_op, _) = as_unary(left);
+                assert_eq!(bang_op, Bang);
+                assert!(matches!(right, Expr::Literal(Literal::False)));
+            });
+        }
+    }
+
+    mod grouping {
+        use super::*;
+
+        #[test]
+        fn parses_parenthesized_expression() {
+            parsed!("(1 + 2)", |expr| {
+                let inner = as_grouping(&expr);
+                let (_, op, _) = as_binary(inner);
+                assert_eq!(op, Plus);
+            });
+        }
+
+        #[test]
+        fn parentheses_override_precedence() {
+            parsed!("(1 + 2) * 3", |expr| {
+                let (left, op, right) = as_binary(&expr);
+                assert_eq!(op, Star);
+                assert_eq!(as_number(right), 3);
+                let inner = as_grouping(left);
+                let (_, add_op, _) = as_binary(inner);
+                assert_eq!(add_op, Plus);
+            });
+        }
+
+        #[test]
+        fn parses_nested_parentheses() {
+            parsed!("((42))", |expr| {
+                let inner = as_grouping(&expr);
+                let deeper = as_grouping(inner);
+                assert_eq!(as_number(deeper), 42);
+            });
+        }
+
+        #[test]
+        fn grouping_can_wrap_comma_expression() {
+            parsed!("(1, 2)", |expr| {
+                let inner = as_grouping(&expr);
+                let (_, op, _) = as_binary(inner);
+                assert_eq!(op, Comma);
+            });
+        }
+    }
+
+    mod comma {
+        use super::*;
+
+        #[test]
+        fn parses_comma_with_both_operands() {
+            parsed!("1 + 2 , 2 + 3", |expr| {
+                let (left, op, right) = as_binary(&expr);
+                assert_eq!(op, Comma);
+
+                let (left_left, left_op, left_right) = as_binary(left);
+                assert_eq!(left_op, Plus);
+                assert_eq!(as_number(left_left), 1);
+                assert_eq!(as_number(left_right), 2);
+
+                let (right_left, right_op, right_right) = as_binary(right);
+                assert_eq!(right_op, Plus);
+                assert_eq!(as_number(right_left), 2);
+                assert_eq!(as_number(right_right), 3);
+            });
+        }
+
+        #[test]
+        fn comma_is_left_associative() {
+            parsed!("1, 2, 3", |expr| {
+                let (left, op, right) = as_binary(&expr);
+                assert_eq!(op, Comma);
+                assert_eq!(as_number(right), 3);
+
+                let (inner_left, inner_op, inner_right) = as_binary(left);
+                assert_eq!(inner_op, Comma);
+                assert_eq!(as_number(inner_left), 1);
+                assert_eq!(as_number(inner_right), 2);
+            });
+        }
+
+        #[test]
+        fn comma_has_lower_precedence_than_equality() {
+            parsed!("1 == 2, 3", |expr| {
+                let (left, op, right) = as_binary(&expr);
+                assert_eq!(op, Comma);
+                assert_eq!(as_number(right), 3);
+                let (_, eq_op, _) = as_binary(left);
+                assert_eq!(eq_op, EqualEqual);
+            });
+        }
+
+        #[test]
+        fn comma_has_lower_precedence_than_addition() {
+            parsed!("1 + 2, 3 + 4", |expr| {
+                let (left, op, right) = as_binary(&expr);
+                assert_eq!(op, Comma);
+                let (_, left_op, _) = as_binary(left);
+                assert_eq!(left_op, Plus);
+                let (_, right_op, _) = as_binary(right);
+                assert_eq!(right_op, Plus);
+            });
+        }
+    }
+
+    mod complex {
+        use super::*;
+
+        #[test]
+        fn parses_mixed_expression() {
+            parsed!("!(1 + 2) * -3 < 10 == true", |expr| {
+                let (left, op, right) = as_binary(&expr);
+                assert_eq!(op, EqualEqual);
+                assert!(matches!(right, Expr::Literal(Literal::True)));
+                let (_, cmp_op, _) = as_binary(left);
+                assert_eq!(cmp_op, Less);
+            });
+        }
+
+        #[test]
+        fn parses_expression_with_string_and_nil() {
+            parsed!("\"a\" == nil", |expr| {
+                let (left, op, right) = as_binary(&expr);
+                assert_eq!(op, EqualEqual);
+                assert_eq!(as_string(left), "a");
+                assert!(matches!(right, Expr::Literal(Literal::Nil)));
+            });
+        }
+
+        #[test]
+        fn parses_float_in_arithmetic() {
+            parsed!("1.5 + 2", |expr| {
+                let (left, op, right) = as_binary(&expr);
+                assert_eq!(op, Plus);
+                assert!((as_float(left) - 1.5).abs() < f64::EPSILON);
+                assert_eq!(as_number(right), 2);
+            });
+        }
+    }
+
+    mod errors {
+        use super::*;
+
+        #[test]
+        fn rejects_unclosed_parenthesis() {
+            parse_fails("((1 + 2)");
+        }
+
+        #[test]
+        fn rejects_extra_closing_parenthesis() {
+            let mut interpreter = RLox { had_error: false };
+            let scanner = Scanner::new("(1 + 2))".lines());
+            let mut parser = Parser::new(scanner, &mut interpreter);
+            parser.parse();
+            assert!(interpreter.had_error);
+        }
+
+        #[test]
+        fn rejects_empty_parentheses() {
+            parse_fails("()");
+        }
+
+        #[test]
+        fn rejects_bare_operator_at_start() {
+            parse_fails("+ 1");
+        }
+
+        #[test]
+        fn rejects_missing_right_operand_after_plus() {
+            parse_fails("1 +");
+        }
+
+        #[test]
+        fn rejects_missing_right_operand_after_equality() {
+            parse_fails("1 ==");
+        }
+
+        #[test]
+        fn rejects_missing_right_operand_after_comma() {
+            parse_fails("1,");
+        }
+
+        #[test]
+        fn rejects_unary_without_operand() {
+            parse_fails("!");
+        }
+
+        #[test]
+        fn rejects_identifier() {
+            parse_fails("foo");
+        }
+
+        #[test]
+        fn rejects_unexpected_token() {
+            parse_fails(")");
+        }
+
+        #[test]
+        fn rejects_empty_input() {
+            parse_fails("");
+        }
     }
 }
