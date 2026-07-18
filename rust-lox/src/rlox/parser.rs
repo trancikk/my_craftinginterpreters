@@ -1,5 +1,5 @@
 use crate::rlox::interpreter::RLox;
-use crate::rlox::parser::Expr::{Binary, Grouping, Ternary, Unary};
+use crate::rlox::parser::Expr::{Binary, Grouping, Operator, Ternary, Unary};
 use crate::rlox::scanner::Scanner;
 use crate::rlox::token::TokenType::{
     Bang, BangEqual, Colon, Comma, EqualEqual, False, FloatNumber, Greater, GreaterEqual,
@@ -62,7 +62,32 @@ impl<'src, 'lox> Parser<'src, 'lox> {
         while self.expression().is_some() {}
     }
 
+    fn report_binary_operation_error(&mut self, token: &Token) {
+        self.interpreter.error(
+            token.line,
+            &format!("Binary operation {token:?} is missing left argument!"),
+        );
+    }
+
+    fn produce_binary_error(&mut self, expr: Expr, token: Token) -> Expr {
+        Binary {
+            left: Box::new(Operator {
+                token: token.clone(),
+            }),
+            op: token,
+            right: Box::new(expr),
+        }
+    }
+
+    fn produce_and_report_binary_error(&mut self, expr: Expr, token: Token) -> Option<Expr> {
+        self.report_binary_operation_error(&token);
+        Some(self.produce_binary_error(expr, token))
+    }
     fn expression(&mut self) -> Option<Expr> {
+        if let Some(token) = self.match_and_return(&Comma) {
+            let expr = self.expression()?;
+            return self.produce_and_report_binary_error(expr, token);
+        }
         let mut exp = self.ternary()?;
         while let Some(coma) = self.match_and_return(&Comma) {
             let right = self.ternary()?;
@@ -99,9 +124,14 @@ impl<'src, 'lox> Parser<'src, 'lox> {
         Some(expr)
     }
     fn equality(&mut self) -> Option<Expr> {
+        let ops = [BangEqual, EqualEqual];
+        if let Some(token) = self.match_any_and_return(&ops) {
+            let right = self.equality()?;
+            return self.produce_and_report_binary_error(right, token);
+        }
         let mut exp = self.comparison()?;
 
-        while let Some(item) = self.match_any_and_return(&[BangEqual, EqualEqual]) {
+        while let Some(item) = self.match_any_and_return(&ops) {
             let right = self.comparison()?;
             exp = Binary {
                 left: Box::new(exp),
@@ -113,10 +143,15 @@ impl<'src, 'lox> Parser<'src, 'lox> {
     }
 
     fn comparison(&mut self) -> Option<Expr> {
+        let ops = [Greater, GreaterEqual, Less, LessEqual];
+        if let Some(token) = self.match_any_and_return(&ops) {
+            let expr = self.comparison()?;
+            return self.produce_and_report_binary_error(expr, token);
+        }
+
         let mut expr = self.term()?;
 
-        while let Some(token) = self.match_any_and_return(&[Greater, GreaterEqual, Less, LessEqual])
-        {
+        while let Some(token) = self.match_any_and_return(&ops) {
             let right = self.term()?;
             expr = Binary {
                 left: Box::new(expr),
@@ -128,6 +163,10 @@ impl<'src, 'lox> Parser<'src, 'lox> {
     }
 
     fn term(&mut self) -> Option<Expr> {
+        if let Some(token) = self.match_and_return(&Plus) {
+            let expr = self.term()?;
+            return self.produce_and_report_binary_error(expr, token);
+        }
         let mut expr = self.factor()?;
 
         while let Some(token) = self.match_any_and_return(&[Minus, Plus]) {
@@ -142,9 +181,16 @@ impl<'src, 'lox> Parser<'src, 'lox> {
     }
 
     fn factor(&mut self) -> Option<Expr> {
+        let ops = [Slash, Star];
+
+        if let Some(token) = self.match_any_and_return(&ops) {
+            let expr = self.factor()?;
+            return self.produce_and_report_binary_error(expr, token);
+        }
+
         let mut expr = self.unary()?;
 
-        while let Some(token) = self.match_any_and_return(&[Slash, Star]) {
+        while let Some(token) = self.match_any_and_return(&ops) {
             let right = self.unary()?;
             expr = Binary {
                 left: Box::new(expr),
@@ -372,10 +418,7 @@ mod tests {
 
     fn parse_error_recovery(input: &str) -> Expr {
         let (result, interpreter) = parse_with_error(input);
-        assert!(
-            interpreter.had_error,
-            "expected parse error for {input:?}"
-        );
+        assert!(interpreter.had_error, "expected parse error for {input:?}");
         result.unwrap_or_else(|| panic!("expected recovered expression for {input:?}"))
     }
 
