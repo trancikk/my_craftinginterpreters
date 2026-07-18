@@ -79,41 +79,25 @@ impl<'src, 'lox> Parser<'src, 'lox> {
         let mut expr = self.equality()?;
         if self.match_and_return(&Question).is_some() {
             let left = self.expression()?;
-            let next_token = self.advance();
-            match next_token {
-                Some(next_token) => match next_token.token_type {
-                    Colon => {
-                        if let Some(right) = self.ternary() {
-                            expr = Ternary {
-                                predicate: Box::new(expr),
-                                left: Box::new(left),
-                                right: Box::new(right),
-                            }
-                        } else {
-                            self.interpreter.error(
-                                self.scanner.line_index,
-                                "Expected an expression after ':' in a ternary operator",
-                            );
-                        }
-                    }
-                    _ => {
-                        self.interpreter.error(
-                                self.scanner.line_index,
-                                &format!("Expected ':' in a ternary operator after the predicate, got {next_token:?}"),
-                            );
-                    }
-                },
-                None => {
-                    self.interpreter.error(
-                        self.scanner.line_index,
-                        "Expected ':' in a ternary operator after the predicate",
-                    );
+            self.consume(
+                &Colon,
+                "Expected ':' in a ternary operator after the predicate",
+            )?;
+            if let Some(right) = self.ternary() {
+                expr = Ternary {
+                    predicate: Box::new(expr),
+                    left: Box::new(left),
+                    right: Box::new(right),
                 }
+            } else {
+                self.interpreter.error(
+                    self.scanner.line_index,
+                    "Expected an expression after ':' in a ternary operator",
+                );
             }
         }
         Some(expr)
     }
-
     fn equality(&mut self) -> Option<Expr> {
         let mut exp = self.comparison()?;
 
