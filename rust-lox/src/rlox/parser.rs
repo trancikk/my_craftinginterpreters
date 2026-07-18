@@ -366,6 +366,33 @@ mod tests {
         }
     }
 
+    fn parse_with_error(input: &str) -> (Option<Expr>, RLox) {
+        parse_expression(input)
+    }
+
+    fn parse_error_recovery(input: &str) -> Expr {
+        let (result, interpreter) = parse_with_error(input);
+        assert!(
+            interpreter.had_error,
+            "expected parse error for {input:?}"
+        );
+        result.unwrap_or_else(|| panic!("expected recovered expression for {input:?}"))
+    }
+
+    fn as_operator(expr: &Expr) -> TokenType {
+        match expr {
+            Expr::Operator { token } => token.token_type.clone(),
+            other => panic!("expected operator placeholder, got {other:?}"),
+        }
+    }
+
+    fn assert_missing_left_binary(expr: &Expr, expected_op: TokenType) -> (&Expr, &Expr) {
+        let (left, op, right) = as_binary(expr);
+        assert_eq!(op, expected_op);
+        assert_eq!(as_operator(left), expected_op);
+        (left, right)
+    }
+
     mod literals {
         use super::*;
 
@@ -1046,7 +1073,7 @@ mod tests {
 
         #[test]
         fn rejects_bare_operator_at_start() {
-            parse_fails("+ 1");
+            parse_error_recovery("+ 1");
         }
 
         #[test]
@@ -1082,6 +1109,283 @@ mod tests {
         #[test]
         fn rejects_empty_input() {
             parse_fails("");
+        }
+    }
+
+    mod missing_left_operand {
+        use super::*;
+
+        mod term {
+            use super::*;
+
+            #[test]
+            fn recovers_bare_plus_with_number() {
+                let expr = parse_error_recovery("+ 1");
+                let (_, right) = assert_missing_left_binary(&expr, Plus);
+                assert_eq!(as_number(right), 1);
+            }
+
+            #[test]
+            fn recovers_bare_plus_with_float() {
+                let expr = parse_error_recovery("+ 1.5");
+                let (_, right) = assert_missing_left_binary(&expr, Plus);
+                assert!((as_float(right) - 1.5).abs() < f64::EPSILON);
+            }
+
+            #[test]
+            fn recovers_bare_plus_with_string() {
+                let expr = parse_error_recovery("+ \"hi\"");
+                let (_, right) = assert_missing_left_binary(&expr, Plus);
+                assert_eq!(as_string(right), "hi");
+            }
+
+            #[test]
+            fn rhs_parses_full_product_for_plus() {
+                let expr = parse_error_recovery("+ 1 * 2");
+                let (_, right) = assert_missing_left_binary(&expr, Plus);
+                let (left, op, right) = as_binary(right);
+                assert_eq!(op, Star);
+                assert_eq!(as_number(left), 1);
+                assert_eq!(as_number(right), 2);
+            }
+
+            #[test]
+            fn rhs_parses_chained_addition() {
+                let expr = parse_error_recovery("+ 1 + 2");
+                let (_, right) = assert_missing_left_binary(&expr, Plus);
+                let (inner_left, inner_op, inner_right) = as_binary(right);
+                assert_eq!(inner_op, Plus);
+                assert_eq!(as_number(inner_left), 1);
+                assert_eq!(as_number(inner_right), 2);
+            }
+
+            #[test]
+            fn chained_missing_plus_operators() {
+                let expr = parse_error_recovery("+ + 1");
+                let (_, right) = assert_missing_left_binary(&expr, Plus);
+                let (_, inner_op, inner_right) = as_binary(right);
+                assert_eq!(inner_op, Plus);
+                assert_eq!(as_number(inner_right), 1);
+            }
+
+            #[test]
+            fn recovers_plus_with_unary_negation_rhs() {
+                let expr = parse_error_recovery("+ -1");
+                let (_, right) = assert_missing_left_binary(&expr, Plus);
+                let (unary_op, inner) = as_unary(right);
+                assert_eq!(unary_op, Minus);
+                assert_eq!(as_number(inner), 1);
+            }
+
+            #[test]
+            fn recovers_inside_parentheses() {
+                let expr = parse_error_recovery("(+ 1)");
+                let inner = as_grouping(&expr);
+                let (_, right) = assert_missing_left_binary(inner, Plus);
+                assert_eq!(as_number(right), 1);
+            }
+
+            #[test]
+            fn unary_minus_is_not_missing_left_operand() {
+                parsed!("-1", |expr| {
+                    let (op, right) = as_unary(&expr);
+                    assert_eq!(op, Minus);
+                    assert_eq!(as_number(right), 1);
+                });
+            }
+
+            #[test]
+            fn spaced_unary_minus_is_not_missing_left_operand() {
+                parsed!("- 1", |expr| {
+                    let (op, right) = as_unary(&expr);
+                    assert_eq!(op, Minus);
+                    assert_eq!(as_number(right), 1);
+                });
+            }
+        }
+
+        mod factor {
+            use super::*;
+
+            #[test]
+            fn recovers_bare_star_with_number() {
+                let expr = parse_error_recovery("* 2");
+                let (_, right) = assert_missing_left_binary(&expr, Star);
+                assert_eq!(as_number(right), 2);
+            }
+
+            #[test]
+            fn recovers_bare_slash_with_number() {
+                let expr = parse_error_recovery("/ 4");
+                let (_, right) = assert_missing_left_binary(&expr, Slash);
+                assert_eq!(as_number(right), 4);
+            }
+
+            #[test]
+            fn rhs_parses_full_quotient() {
+                let expr = parse_error_recovery("* 6 / 2");
+                let (_, right) = assert_missing_left_binary(&expr, Star);
+                let (left, op, right) = as_binary(right);
+                assert_eq!(op, Slash);
+                assert_eq!(as_number(left), 6);
+                assert_eq!(as_number(right), 2);
+            }
+
+            #[test]
+            fn rhs_parses_unary_operand() {
+                let expr = parse_error_recovery("* -3");
+                let (_, right) = assert_missing_left_binary(&expr, Star);
+                let (unary_op, inner) = as_unary(right);
+                assert_eq!(unary_op, Minus);
+                assert_eq!(as_number(inner), 3);
+            }
+
+            #[test]
+            fn chained_missing_star_operators() {
+                let expr = parse_error_recovery("* * 2");
+                let (_, right) = assert_missing_left_binary(&expr, Star);
+                let (_, inner_op, inner_right) = as_binary(right);
+                assert_eq!(inner_op, Star);
+                assert_eq!(as_number(inner_right), 2);
+            }
+        }
+
+        mod comparison {
+            use super::*;
+
+            #[test]
+            fn recovers_bare_less_with_number() {
+                let expr = parse_error_recovery("< 3");
+                let (_, right) = assert_missing_left_binary(&expr, Less);
+                assert_eq!(as_number(right), 3);
+            }
+
+            #[test]
+            fn recovers_bare_less_equal_with_number() {
+                let expr = parse_error_recovery("<= 3");
+                let (_, right) = assert_missing_left_binary(&expr, LessEqual);
+                assert_eq!(as_number(right), 3);
+            }
+
+            #[test]
+            fn recovers_bare_greater_with_number() {
+                let expr = parse_error_recovery("> 5");
+                let (_, right) = assert_missing_left_binary(&expr, Greater);
+                assert_eq!(as_number(right), 5);
+            }
+
+            #[test]
+            fn recovers_bare_greater_equal_with_number() {
+                let expr = parse_error_recovery(">= 5");
+                let (_, right) = assert_missing_left_binary(&expr, GreaterEqual);
+                assert_eq!(as_number(right), 5);
+            }
+
+            #[test]
+            fn rhs_parses_addition_within_comparison() {
+                let expr = parse_error_recovery("< 1 + 2");
+                let (_, right) = assert_missing_left_binary(&expr, Less);
+                let (left, op, right) = as_binary(right);
+                assert_eq!(op, Plus);
+                assert_eq!(as_number(left), 1);
+                assert_eq!(as_number(right), 2);
+            }
+        }
+
+        mod equality {
+            use super::*;
+
+            #[test]
+            fn recovers_bare_equal_equal_with_number() {
+                let expr = parse_error_recovery("== 1");
+                let (_, right) = assert_missing_left_binary(&expr, EqualEqual);
+                assert_eq!(as_number(right), 1);
+            }
+
+            #[test]
+            fn recovers_bare_bang_equal_with_number() {
+                let expr = parse_error_recovery("!= 2");
+                let (_, right) = assert_missing_left_binary(&expr, BangEqual);
+                assert_eq!(as_number(right), 2);
+            }
+
+            #[test]
+            fn rhs_parses_comparison_within_equality() {
+                let expr = parse_error_recovery("== 1 < 2");
+                let (_, right) = assert_missing_left_binary(&expr, EqualEqual);
+                let (_, cmp_op, _) = as_binary(right);
+                assert_eq!(cmp_op, Less);
+            }
+
+            #[test]
+            fn recovers_inside_parentheses() {
+                let expr = parse_error_recovery("(== 1)");
+                let inner = as_grouping(&expr);
+                let (_, right) = assert_missing_left_binary(inner, EqualEqual);
+                assert_eq!(as_number(right), 1);
+            }
+        }
+
+        mod comma {
+            use super::*;
+
+            #[test]
+            fn recovers_bare_comma_with_number() {
+                let expr = parse_error_recovery(", 1");
+                let (_, right) = assert_missing_left_binary(&expr, Comma);
+                assert_eq!(as_number(right), 1);
+            }
+
+            #[test]
+            fn rhs_parses_comma_expression() {
+                let expr = parse_error_recovery(", 1, 2");
+                let (_, right) = assert_missing_left_binary(&expr, Comma);
+                let (left, op, right) = as_binary(right);
+                assert_eq!(op, Comma);
+                assert_eq!(as_number(left), 1);
+                assert_eq!(as_number(right), 2);
+            }
+
+            #[test]
+            fn rhs_parses_ternary_within_comma_expression() {
+                let expr = parse_error_recovery(", true ? 1 : 2");
+                let (_, right) = assert_missing_left_binary(&expr, Comma);
+                let (condition, then_branch, else_branch) = as_ternary(right);
+                assert!(matches!(condition, Expr::Literal(Literal::True)));
+                assert_eq!(as_number(then_branch), 1);
+                assert_eq!(as_number(else_branch), 2);
+            }
+        }
+
+        mod recovery {
+            use super::*;
+
+            #[test]
+            fn sets_had_error_flag() {
+                let (_, interpreter) = parse_with_error("+ 1");
+                assert!(interpreter.had_error);
+            }
+
+            #[test]
+            fn still_returns_syntax_tree() {
+                let (result, _) = parse_with_error("+ 1");
+                assert!(result.is_some());
+            }
+
+            #[test]
+            fn valid_expressions_remain_unaffected() {
+                parse_ok("1 + 2 * 3");
+            }
+
+            #[test]
+            fn bare_operator_without_rhs_still_fails() {
+                parse_fails("+");
+            }
+
+            #[test]
+            fn middle_operand_still_requires_expression() {
+                parse_fails("1 * + 2");
+            }
         }
     }
 }
