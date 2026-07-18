@@ -1,9 +1,10 @@
 use crate::rlox::interpreter::RLox;
-use crate::rlox::parser::Expr::{Binary, Grouping, Unary};
+use crate::rlox::parser::Expr::{Binary, Grouping, Ternary, Unary};
 use crate::rlox::scanner::Scanner;
 use crate::rlox::token::TokenType::{
-    Bang, BangEqual, Comma, EqualEqual, False, FloatNumber, Greater, GreaterEqual, LeftParen, Less,
-    LessEqual, Minus, Nil, Number, Plus, RightParen, Semicolon, Slash, Star, StringToken, True,
+    Bang, BangEqual, Colon, Comma, EqualEqual, False, FloatNumber, Greater, GreaterEqual,
+    LeftParen, Less, LessEqual, Minus, Nil, Number, Plus, Question, RightParen, Semicolon, Slash,
+    Star, StringToken, True,
 };
 use crate::rlox::token::{Token, TokenType};
 
@@ -23,6 +24,11 @@ enum Expr {
     Binary {
         left: Box<Expr>,
         op: Token,
+        right: Box<Expr>,
+    },
+    Ternary {
+        predicate: Box<Expr>,
+        left: Box<Expr>,
         right: Box<Expr>,
     },
     Unary {
@@ -57,9 +63,9 @@ impl<'src, 'lox> Parser<'src, 'lox> {
     }
 
     fn expression(&mut self) -> Option<Expr> {
-        let mut exp = self.equality()?;
+        let mut exp = self.ternary()?;
         while let Some(coma) = self.match_and_return(&Comma) {
-            let right = self.equality()?;
+            let right = self.ternary()?;
             exp = Binary {
                 left: Box::new(exp),
                 op: coma,
@@ -67,6 +73,45 @@ impl<'src, 'lox> Parser<'src, 'lox> {
             }
         }
         Some(exp)
+    }
+
+    fn ternary(&mut self) -> Option<Expr> {
+        let mut expr = self.equality()?;
+        if self.match_and_return(&Question).is_some() {
+            let left = self.expression()?;
+            let next_token = self.advance();
+            match next_token {
+                Some(next_token) => match next_token.token_type {
+                    Colon => {
+                        if let Some(right) = self.ternary() {
+                            expr = Ternary {
+                                predicate: Box::new(expr),
+                                left: Box::new(left),
+                                right: Box::new(right),
+                            }
+                        } else {
+                            self.interpreter.error(
+                                self.scanner.line_index,
+                                "Expected an expression after ':' in a ternary operator",
+                            );
+                        }
+                    }
+                    _ => {
+                        self.interpreter.error(
+                                self.scanner.line_index,
+                                &format!("Expected ':' in a ternary operator after the predicate, got {next_token:?}"),
+                            );
+                    }
+                },
+                None => {
+                    self.interpreter.error(
+                        self.scanner.line_index,
+                        "Expected ':' in a ternary operator after the predicate",
+                    );
+                }
+            }
+        }
+        Some(expr)
     }
 
     fn equality(&mut self) -> Option<Expr> {
@@ -323,6 +368,17 @@ mod tests {
         match expr {
             Expr::Literal(Literal::StringL(s)) => s.as_str(),
             other => panic!("expected string literal, got {other:?}"),
+        }
+    }
+
+    fn as_ternary(expr: &Expr) -> (&Expr, &Expr, &Expr) {
+        match expr {
+            Expr::Ternary {
+                predicate: condition,
+                left,
+                right,
+            } => (condition, left, right),
+            other => panic!("expected ternary expression, got {other:?}"),
         }
     }
 
@@ -689,6 +745,261 @@ mod tests {
                 let (_, right_op, _) = as_binary(right);
                 assert_eq!(right_op, Plus);
             });
+        }
+    }
+
+    mod ternary {
+        use super::*;
+
+        #[test]
+        fn parses_simple_ternary() {
+            parsed!("true ? 1 : 2", |expr| {
+                let (cond, then_branch, else_branch) = as_ternary(&expr);
+                assert!(matches!(cond, Expr::Literal(Literal::True)));
+                assert_eq!(as_number(then_branch), 1);
+                assert_eq!(as_number(else_branch), 2);
+            });
+        }
+
+        #[test]
+        fn parses_ternary_with_false_condition() {
+            parsed!("false ? 1 : 2", |expr| {
+                let (cond, then_branch, else_branch) = as_ternary(&expr);
+                assert!(matches!(cond, Expr::Literal(Literal::False)));
+                assert_eq!(as_number(then_branch), 1);
+                assert_eq!(as_number(else_branch), 2);
+            });
+        }
+
+        #[test]
+        fn parses_ternary_with_nil_and_string_branches() {
+            parsed!("nil ? \"yes\" : \"no\"", |expr| {
+                let (cond, then_branch, else_branch) = as_ternary(&expr);
+                assert!(matches!(cond, Expr::Literal(Literal::Nil)));
+                assert_eq!(as_string(then_branch), "yes");
+                assert_eq!(as_string(else_branch), "no");
+            });
+        }
+
+        #[test]
+        fn chained_ternary_is_right_associative() {
+            parsed!("1 ? 2 : 3 ? 4 : 5", |expr| {
+                let (cond, then_branch, else_branch) = as_ternary(&expr);
+                assert_eq!(as_number(cond), 1);
+                assert_eq!(as_number(then_branch), 2);
+
+                let (inner_cond, inner_then, inner_else) = as_ternary(else_branch);
+                assert_eq!(as_number(inner_cond), 3);
+                assert_eq!(as_number(inner_then), 4);
+                assert_eq!(as_number(inner_else), 5);
+            });
+        }
+
+        #[test]
+        fn nested_ternary_in_then_branch() {
+            parsed!("1 ? 2 ? 3 : 4 : 5", |expr| {
+                let (cond, then_branch, else_branch) = as_ternary(&expr);
+                assert_eq!(as_number(cond), 1);
+                assert_eq!(as_number(else_branch), 5);
+
+                let (inner_cond, inner_then, inner_else) = as_ternary(then_branch);
+                assert_eq!(as_number(inner_cond), 2);
+                assert_eq!(as_number(inner_then), 3);
+                assert_eq!(as_number(inner_else), 4);
+            });
+        }
+
+        #[test]
+        fn nested_ternary_in_else_branch_via_equality_precedence() {
+            parsed!("true ? 1 : 2 == 3 ? 4 : 5", |expr| {
+                let (cond, then_branch, else_branch) = as_ternary(&expr);
+                assert!(matches!(cond, Expr::Literal(Literal::True)));
+                assert_eq!(as_number(then_branch), 1);
+
+                let (inner_cond, inner_then, inner_else) = as_ternary(else_branch);
+                let (_, eq_op, _) = as_binary(inner_cond);
+                assert_eq!(eq_op, EqualEqual);
+                assert_eq!(as_number(inner_then), 4);
+                assert_eq!(as_number(inner_else), 5);
+            });
+        }
+
+        #[test]
+        fn arithmetic_in_condition_is_fully_parsed() {
+            parsed!("1 + 2 ? 3 : 4", |expr| {
+                let (cond, then_branch, else_branch) = as_ternary(&expr);
+                let (_, add_op, _) = as_binary(cond);
+                assert_eq!(add_op, Plus);
+                assert_eq!(as_number(then_branch), 3);
+                assert_eq!(as_number(else_branch), 4);
+            });
+        }
+
+        #[test]
+        fn equality_in_condition_is_fully_parsed() {
+            parsed!("1 == 2 ? 3 : 4", |expr| {
+                let (cond, then_branch, else_branch) = as_ternary(&expr);
+                let (_, eq_op, _) = as_binary(cond);
+                assert_eq!(eq_op, EqualEqual);
+                assert_eq!(as_number(then_branch), 3);
+                assert_eq!(as_number(else_branch), 4);
+            });
+        }
+
+        #[test]
+        fn comparison_in_condition_is_fully_parsed() {
+            parsed!("1 < 2 ? 3 : 4", |expr| {
+                let (cond, _, _) = as_ternary(&expr);
+                let (_, cmp_op, _) = as_binary(cond);
+                assert_eq!(cmp_op, Less);
+            });
+        }
+
+        #[test]
+        fn unary_in_condition_binds_tighter_than_ternary() {
+            parsed!("!true ? 1 : 2", |expr| {
+                let (cond, _, _) = as_ternary(&expr);
+                let (bang_op, _) = as_unary(cond);
+                assert_eq!(bang_op, Bang);
+            });
+        }
+
+        #[test]
+        fn negation_in_condition_binds_tighter_than_ternary() {
+            parsed!("-1 ? 2 : 3", |expr| {
+                let (cond, _, _) = as_ternary(&expr);
+                let (minus_op, inner) = as_unary(cond);
+                assert_eq!(minus_op, Minus);
+                assert_eq!(as_number(inner), 1);
+            });
+        }
+
+        #[test]
+        fn else_branch_parses_equality_before_next_ternary() {
+            parsed!("true ? 1 : 2 == 3", |expr| {
+                let (_, _, else_branch) = as_ternary(&expr);
+                let (_, eq_op, _) = as_binary(else_branch);
+                assert_eq!(eq_op, EqualEqual);
+            });
+        }
+
+        #[test]
+        fn arithmetic_in_branches_is_parsed() {
+            parsed!("true ? 1 + 2 : 3 * 4", |expr| {
+                let (_, then_branch, else_branch) = as_ternary(&expr);
+                let (_, then_op, _) = as_binary(then_branch);
+                assert_eq!(then_op, Plus);
+                let (_, else_op, _) = as_binary(else_branch);
+                assert_eq!(else_op, Star);
+            });
+        }
+
+        #[test]
+        fn parentheses_override_ternary_precedence() {
+            parsed!("(1 ? 2 : 3) + 4", |expr| {
+                let (left, op, right) = as_binary(&expr);
+                assert_eq!(op, Plus);
+                assert_eq!(as_number(right), 4);
+                let inner = as_grouping(left);
+                let (cond, then_branch, else_branch) = as_ternary(inner);
+                assert_eq!(as_number(cond), 1);
+                assert_eq!(as_number(then_branch), 2);
+                assert_eq!(as_number(else_branch), 3);
+            });
+        }
+
+        #[test]
+        fn parentheses_force_left_associative_chaining() {
+            parsed!("(1 ? 2 : 3) ? 4 : 5", |expr| {
+                let (cond, then_branch, else_branch) = as_ternary(&expr);
+                let inner = as_grouping(cond);
+                let (inner_cond, inner_then, inner_else) = as_ternary(inner);
+                assert_eq!(as_number(inner_cond), 1);
+                assert_eq!(as_number(inner_then), 2);
+                assert_eq!(as_number(inner_else), 3);
+                assert_eq!(as_number(then_branch), 4);
+                assert_eq!(as_number(else_branch), 5);
+            });
+        }
+
+        #[test]
+        fn grouping_can_wrap_entire_ternary() {
+            parsed!("(true ? 1 : 2)", |expr| {
+                let inner = as_grouping(&expr);
+                let (cond, then_branch, else_branch) = as_ternary(inner);
+                assert!(matches!(cond, Expr::Literal(Literal::True)));
+                assert_eq!(as_number(then_branch), 1);
+                assert_eq!(as_number(else_branch), 2);
+            });
+        }
+
+        #[test]
+        fn ternary_binds_tighter_than_comma_on_the_right() {
+            parsed!("1 ? 2 : 3, 4", |expr| {
+                let (left, op, right) = as_binary(&expr);
+                assert_eq!(op, Comma);
+                assert_eq!(as_number(right), 4);
+                let (_, then_branch, else_branch) = as_ternary(left);
+                assert_eq!(as_number(then_branch), 2);
+                assert_eq!(as_number(else_branch), 3);
+            });
+        }
+
+        #[test]
+        fn ternary_binds_tighter_than_comma_on_the_left() {
+            parsed!("1, 2 ? 3 : 4", |expr| {
+                let (left, op, right) = as_binary(&expr);
+                assert_eq!(op, Comma);
+                assert_eq!(as_number(left), 1);
+                let (_, then_branch, else_branch) = as_ternary(right);
+                assert_eq!(as_number(then_branch), 3);
+                assert_eq!(as_number(else_branch), 4);
+            });
+        }
+
+        #[test]
+        fn then_branch_allows_comma_expression() {
+            parsed!("true ? 1, 2 : 3", |expr| {
+                let (_, then_branch, else_branch) = as_ternary(&expr);
+                let (_, comma_op, _) = as_binary(then_branch);
+                assert_eq!(comma_op, Comma);
+                assert_eq!(as_number(else_branch), 3);
+            });
+        }
+
+        #[test]
+        fn rejects_missing_then_branch() {
+            parse_fails("1 ?");
+        }
+
+        #[test]
+        fn rejects_missing_colon() {
+            parse_fails("1 ? 2");
+        }
+
+        #[test]
+        fn rejects_missing_else_branch() {
+            parse_fails("1 ? 2 :");
+        }
+
+        #[test]
+        fn rejects_leading_question_mark() {
+            parse_fails("? 1 : 2");
+        }
+
+        #[test]
+        fn rejects_bare_question_mark() {
+            parse_fails("?");
+        }
+
+        #[test]
+        fn rejects_double_question_without_colon() {
+            parse_fails("1 ? ? 2 : 3");
+        }
+
+        #[test]
+        fn rejects_ternary_without_condition() {
+            parse_fails("? true : false");
         }
     }
 
