@@ -1,6 +1,6 @@
 use crate::rlox::interpreter::RLox;
-use crate::rlox::token::{RESERVED_KEYWORDS, Token, TokenType};
-use std::str::{Chars, Lines};
+use crate::rlox::token::{Token, TokenType, RESERVED_KEYWORDS};
+use std::str::Lines;
 
 pub struct Scanner<'a> {
     lines: Lines<'a>,
@@ -62,16 +62,16 @@ impl<'a> Scanner<'a> {
         ch
     }
 
-    fn get_current_line_cursor(&self) -> Option<Chars> {
-        let line = self.current_line?;
-        Some(line[self.current_position..].chars())
-    }
+    // fn get_current_line_cursor(&self) -> Option<Chars> {
+    //     let line = self.current_line?;
+    //     Some(line[self.current_position..].chars())
+    // }
 
     fn advance_until_char_in_line(&mut self, ch: char) -> Option<char> {
-        let chars = self.get_current_line_cursor()?;
-        for next_char in chars {
+        let line = self.current_line?;
+        for next_char in line[self.current_position..].chars() {
+            self.advance_by_char(next_char);
             if next_char == ch {
-                self.advance_by_char(next_char);
                 return Some(next_char);
             }
         }
@@ -389,10 +389,10 @@ impl<'a> Scanner<'a> {
 mod tests {
     use super::*;
     use crate::rlox::token::TokenType::{
-        And, Bang, BangEqual, Class, Colon, Comma, Dot, Else, Equal, EqualEqual, False, FloatNumber,
-        For, Fun, Greater, GreaterEqual, Identifier, If, LeftBrace, LeftParen, Less, LessEqual,
-        Minus, Nil, Number, Or, Plus, Print, Question, Return, RightBrace, RightParen, Semicolon,
-        Slash, Star, StringToken, Super, This, True, Var, While,
+        And, Bang, BangEqual, Class, Colon, Comma, Dot, Else, Equal, EqualEqual, False,
+        FloatNumber, For, Fun, Greater, GreaterEqual, Identifier, If, LeftBrace, LeftParen, Less,
+        LessEqual, Minus, Nil, Number, Or, Plus, Print, Question, Return, RightBrace, RightParen,
+        Semicolon, Slash, Star, StringToken, Super, This, True, Var, While,
     };
 
     fn scan(input: &str) -> (Vec<Token>, RLox) {
@@ -413,10 +413,7 @@ mod tests {
 
     fn scan_fails(input: &str) {
         let (_, interpreter) = scan(input);
-        assert!(
-            interpreter.had_error,
-            "expected scan error for {input:?}"
-        );
+        assert!(interpreter.had_error, "expected scan error for {input:?}");
     }
 
     fn types(tokens: &[Token]) -> Vec<TokenType> {
@@ -456,14 +453,7 @@ mod tests {
             assert_eq!(
                 types(&tokens),
                 vec![
-                    LeftParen,
-                    RightParen,
-                    LeftBrace,
-                    RightBrace,
-                    Comma,
-                    Dot,
-                    Semicolon,
-                    Question,
+                    LeftParen, RightParen, LeftBrace, RightBrace, Comma, Dot, Semicolon, Question,
                     Colon,
                 ]
             );
@@ -524,7 +514,7 @@ mod tests {
 
         #[test]
         fn scans_float() {
-            assert_single("3.14", FloatNumber(3.14));
+            assert_single("3.15", FloatNumber(3.15));
         }
 
         #[test]
@@ -560,7 +550,8 @@ mod tests {
 
         #[test]
         fn scans_all_reserved_keywords() {
-            let input = "and class else false for fun if nil or print return super this true var while";
+            let input =
+                "and class else false for fun if nil or print return super this true var while";
             let tokens = scan_ok(input);
             assert_eq!(
                 types(&tokens),
@@ -686,10 +677,7 @@ mod tests {
         #[test]
         fn tokens_after_block_comment_on_same_line() {
             let tokens = scan_ok("1 /* comment */ + 2");
-            assert_eq!(
-                types(&tokens),
-                vec![Number(1), Plus, Number(2)]
-            );
+            assert_eq!(types(&tokens), vec![Number(1), Plus, Number(2)]);
         }
 
         #[test]

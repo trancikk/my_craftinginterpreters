@@ -338,8 +338,8 @@ mod tests {
 
         #[test]
         fn parses_float() {
-            parsed!("3.14", |expr| {
-                assert!((as_float(&expr) - 3.14).abs() < f64::EPSILON);
+            parsed!("3.15", |expr| {
+                assert!((as_float(&expr) - 3.15).abs() < f64::EPSILON);
             });
         }
 
