@@ -9,7 +9,7 @@ use crate::rlox::token::TokenType::{
 use crate::rlox::token::{Token, TokenType};
 
 #[derive(Debug)]
-enum Literal {
+pub enum Literal {
     Number(u64),
     FloatNumber(f64),
     StringL(String),
@@ -19,8 +19,8 @@ enum Literal {
 }
 
 #[derive(Debug)]
-enum Expr {
-    Literal(Literal),
+pub enum Expr {
+    SyntaxLiteral(Literal),
     Binary {
         left: Box<Expr>,
         op: Token,
@@ -215,12 +215,12 @@ impl<'src, 'lox> Parser<'src, 'lox> {
     fn primary(&mut self) -> Option<Expr> {
         let next = self.advance()?;
         match next.token_type.clone() {
-            False => Some(Expr::Literal(Literal::False)),
-            True => Some(Expr::Literal(Literal::True)),
-            Nil => Some(Expr::Literal(Literal::Nil)),
-            Number(val) => Some(Expr::Literal(Literal::Number(val))),
-            FloatNumber(val) => Some(Expr::Literal(Literal::FloatNumber(val))),
-            StringToken(val) => Some(Expr::Literal(Literal::StringL(val.clone()))),
+            False => Some(Expr::SyntaxLiteral(Literal::False)),
+            True => Some(Expr::SyntaxLiteral(Literal::True)),
+            Nil => Some(Expr::SyntaxLiteral(Literal::Nil)),
+            Number(val) => Some(Expr::SyntaxLiteral(Literal::Number(val))),
+            FloatNumber(val) => Some(Expr::SyntaxLiteral(Literal::FloatNumber(val))),
+            StringToken(val) => Some(Expr::SyntaxLiteral(Literal::StringL(val.clone()))),
             LeftParen => {
                 let expr = self.expression()?;
                 self.consume(&RightParen, "Expect ')' after expression.")?;
@@ -382,21 +382,21 @@ mod tests {
 
     fn as_number(expr: &Expr) -> u64 {
         match expr {
-            Expr::Literal(Literal::Number(n)) => *n,
+            Expr::SyntaxLiteral(Literal::Number(n)) => *n,
             other => panic!("expected number literal, got {other:?}"),
         }
     }
 
     fn as_float(expr: &Expr) -> f64 {
         match expr {
-            Expr::Literal(Literal::FloatNumber(n)) => *n,
+            Expr::SyntaxLiteral(Literal::FloatNumber(n)) => *n,
             other => panic!("expected float literal, got {other:?}"),
         }
     }
 
     fn as_string(expr: &Expr) -> &str {
         match expr {
-            Expr::Literal(Literal::StringL(s)) => s.as_str(),
+            Expr::SyntaxLiteral(Literal::StringL(s)) => s.as_str(),
             other => panic!("expected string literal, got {other:?}"),
         }
     }
@@ -462,17 +462,17 @@ mod tests {
 
         #[test]
         fn parses_true() {
-            assert!(matches!(parse_ok("true"), Expr::Literal(Literal::True)));
+            assert!(matches!(parse_ok("true"), Expr::SyntaxLiteral(Literal::True)));
         }
 
         #[test]
         fn parses_false() {
-            assert!(matches!(parse_ok("false"), Expr::Literal(Literal::False)));
+            assert!(matches!(parse_ok("false"), Expr::SyntaxLiteral(Literal::False)));
         }
 
         #[test]
         fn parses_nil() {
-            assert!(matches!(parse_ok("nil"), Expr::Literal(Literal::Nil)));
+            assert!(matches!(parse_ok("nil"), Expr::SyntaxLiteral(Literal::Nil)));
         }
     }
 
@@ -662,7 +662,7 @@ mod tests {
             parsed!("!true", |expr| {
                 let (op, right) = as_unary(&expr);
                 assert_eq!(op, Bang);
-                assert!(matches!(right, Expr::Literal(Literal::True)));
+                assert!(matches!(right, Expr::SyntaxLiteral(Literal::True)));
             });
         }
 
@@ -695,7 +695,7 @@ mod tests {
                 assert_eq!(op, EqualEqual);
                 let (bang_op, _) = as_unary(left);
                 assert_eq!(bang_op, Bang);
-                assert!(matches!(right, Expr::Literal(Literal::False)));
+                assert!(matches!(right, Expr::SyntaxLiteral(Literal::False)));
             });
         }
     }
@@ -809,7 +809,7 @@ mod tests {
         fn parses_simple_ternary() {
             parsed!("true ? 1 : 2", |expr| {
                 let (cond, then_branch, else_branch) = as_ternary(&expr);
-                assert!(matches!(cond, Expr::Literal(Literal::True)));
+                assert!(matches!(cond, Expr::SyntaxLiteral(Literal::True)));
                 assert_eq!(as_number(then_branch), 1);
                 assert_eq!(as_number(else_branch), 2);
             });
@@ -819,7 +819,7 @@ mod tests {
         fn parses_ternary_with_false_condition() {
             parsed!("false ? 1 : 2", |expr| {
                 let (cond, then_branch, else_branch) = as_ternary(&expr);
-                assert!(matches!(cond, Expr::Literal(Literal::False)));
+                assert!(matches!(cond, Expr::SyntaxLiteral(Literal::False)));
                 assert_eq!(as_number(then_branch), 1);
                 assert_eq!(as_number(else_branch), 2);
             });
@@ -829,7 +829,7 @@ mod tests {
         fn parses_ternary_with_nil_and_string_branches() {
             parsed!("nil ? \"yes\" : \"no\"", |expr| {
                 let (cond, then_branch, else_branch) = as_ternary(&expr);
-                assert!(matches!(cond, Expr::Literal(Literal::Nil)));
+                assert!(matches!(cond, Expr::SyntaxLiteral(Literal::Nil)));
                 assert_eq!(as_string(then_branch), "yes");
                 assert_eq!(as_string(else_branch), "no");
             });
@@ -867,7 +867,7 @@ mod tests {
         fn nested_ternary_in_else_branch_via_equality_precedence() {
             parsed!("true ? 1 : 2 == 3 ? 4 : 5", |expr| {
                 let (cond, then_branch, else_branch) = as_ternary(&expr);
-                assert!(matches!(cond, Expr::Literal(Literal::True)));
+                assert!(matches!(cond, Expr::SyntaxLiteral(Literal::True)));
                 assert_eq!(as_number(then_branch), 1);
 
                 let (inner_cond, inner_then, inner_else) = as_ternary(else_branch);
@@ -981,7 +981,7 @@ mod tests {
             parsed!("(true ? 1 : 2)", |expr| {
                 let inner = as_grouping(&expr);
                 let (cond, then_branch, else_branch) = as_ternary(inner);
-                assert!(matches!(cond, Expr::Literal(Literal::True)));
+                assert!(matches!(cond, Expr::SyntaxLiteral(Literal::True)));
                 assert_eq!(as_number(then_branch), 1);
                 assert_eq!(as_number(else_branch), 2);
             });
@@ -1065,7 +1065,7 @@ mod tests {
             parsed!("!(1 + 2) * -3 < 10 == true", |expr| {
                 let (left, op, right) = as_binary(&expr);
                 assert_eq!(op, EqualEqual);
-                assert!(matches!(right, Expr::Literal(Literal::True)));
+                assert!(matches!(right, Expr::SyntaxLiteral(Literal::True)));
                 let (_, cmp_op, _) = as_binary(left);
                 assert_eq!(cmp_op, Less);
             });
@@ -1077,7 +1077,7 @@ mod tests {
                 let (left, op, right) = as_binary(&expr);
                 assert_eq!(op, EqualEqual);
                 assert_eq!(as_string(left), "a");
-                assert!(matches!(right, Expr::Literal(Literal::Nil)));
+                assert!(matches!(right, Expr::SyntaxLiteral(Literal::Nil)));
             });
         }
 
@@ -1394,7 +1394,7 @@ mod tests {
                 let expr = parse_error_recovery(", true ? 1 : 2");
                 let (_, right) = assert_missing_left_binary(&expr, Comma);
                 let (condition, then_branch, else_branch) = as_ternary(right);
-                assert!(matches!(condition, Expr::Literal(Literal::True)));
+                assert!(matches!(condition, Expr::SyntaxLiteral(Literal::True)));
                 assert_eq!(as_number(then_branch), 1);
                 assert_eq!(as_number(else_branch), 2);
             }
