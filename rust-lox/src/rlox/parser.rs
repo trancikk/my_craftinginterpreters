@@ -324,6 +324,22 @@ impl<'src, 'lox> Parser<'src, 'lox> {
 }
 
 #[cfg(test)]
+pub(crate) fn parse_one_expression(input: &str) -> Expr {
+    use crate::rlox::interpreter::RLox;
+    use crate::rlox::scanner::Scanner;
+
+    let mut interpreter = RLox { had_error: false };
+    let scanner = Scanner::new(input.lines());
+    let mut parser = Parser::new(scanner, &mut interpreter);
+    let result = parser.expression();
+    assert!(
+        !interpreter.had_error,
+        "unexpected parse error for {input:?}"
+    );
+    result.unwrap_or_else(|| panic!("expected expression for {input:?}"))
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

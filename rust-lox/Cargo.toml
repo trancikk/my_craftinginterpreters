@@ -9,3 +9,4 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0.102"
+thiserror = "2.0.20"
