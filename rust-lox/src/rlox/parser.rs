@@ -340,10 +340,10 @@ pub(crate) fn parse_one_expression(input: &str) -> Expr {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
-    fn parse_expression(input: &str) -> (Option<Expr>, RLox) {
+    pub(crate) fn parse_expression(input: &str) -> (Option<Expr>, RLox) {
         let mut interpreter = RLox { had_error: false };
         let scanner = Scanner::new(input.lines());
         let mut parser = Parser::new(scanner, &mut interpreter);
@@ -351,7 +351,7 @@ mod tests {
         (result, interpreter)
     }
 
-    fn parse_ok(input: &str) -> Expr {
+    pub(crate) fn parse_ok(input: &str) -> Expr {
         let (result, interpreter) = parse_expression(input);
         assert!(
             !interpreter.had_error,
@@ -360,7 +360,7 @@ mod tests {
         result.unwrap_or_else(|| panic!("expected expression for {input:?}"))
     }
 
-    fn parse_fails(input: &str) {
+    pub(crate) fn parse_fails(input: &str) {
         let (result, interpreter) = parse_expression(input);
         assert!(
             interpreter.had_error || result.is_none(),
@@ -375,49 +375,49 @@ mod tests {
         }};
     }
 
-    fn as_binary(expr: &Expr) -> (&Expr, TokenType, &Expr) {
+    pub(crate) fn as_binary(expr: &Expr) -> (&Expr, TokenType, &Expr) {
         match expr {
             Binary { left, op, right } => (left, op.token_type.clone(), right),
             other => panic!("expected binary expression, got {other:?}"),
         }
     }
 
-    fn as_unary(expr: &Expr) -> (TokenType, &Expr) {
+    pub(crate) fn as_unary(expr: &Expr) -> (TokenType, &Expr) {
         match expr {
             Unary { op, right } => (op.token_type.clone(), right),
             other => panic!("expected unary expression, got {other:?}"),
         }
     }
 
-    fn as_grouping(expr: &Expr) -> &Expr {
+    pub(crate) fn as_grouping(expr: &Expr) -> &Expr {
         match expr {
             Grouping { expr } => expr,
             other => panic!("expected grouping expression, got {other:?}"),
         }
     }
 
-    fn as_number(expr: &Expr) -> u64 {
+    pub(crate) fn as_number(expr: &Expr) -> u64 {
         match expr {
             Expr::SyntaxLiteral(Literal::Number(n)) => *n,
             other => panic!("expected number literal, got {other:?}"),
         }
     }
 
-    fn as_float(expr: &Expr) -> f64 {
+    pub(crate) fn as_float(expr: &Expr) -> f64 {
         match expr {
             Expr::SyntaxLiteral(Literal::FloatNumber(n)) => *n,
             other => panic!("expected float literal, got {other:?}"),
         }
     }
 
-    fn as_string(expr: &Expr) -> &str {
+    pub(crate) fn as_string(expr: &Expr) -> &str {
         match expr {
             Expr::SyntaxLiteral(Literal::StringL(s)) => s.as_str(),
             other => panic!("expected string literal, got {other:?}"),
         }
     }
 
-    fn as_ternary(expr: &Expr) -> (&Expr, &Expr, &Expr) {
+    pub(crate) fn as_ternary(expr: &Expr) -> (&Expr, &Expr, &Expr) {
         match expr {
             Expr::Ternary {
                 predicate: condition,
@@ -428,24 +428,24 @@ mod tests {
         }
     }
 
-    fn parse_with_error(input: &str) -> (Option<Expr>, RLox) {
+    pub(crate) fn parse_with_error(input: &str) -> (Option<Expr>, RLox) {
         parse_expression(input)
     }
 
-    fn parse_error_recovery(input: &str) -> Expr {
+    pub(crate) fn parse_error_recovery(input: &str) -> Expr {
         let (result, interpreter) = parse_with_error(input);
         assert!(interpreter.had_error, "expected parse error for {input:?}");
         result.unwrap_or_else(|| panic!("expected recovered expression for {input:?}"))
     }
 
-    fn as_operator(expr: &Expr) -> TokenType {
+    pub(crate) fn as_operator(expr: &Expr) -> TokenType {
         match expr {
             Expr::Operator { token } => token.token_type.clone(),
             other => panic!("expected operator placeholder, got {other:?}"),
         }
     }
 
-    fn assert_missing_left_binary(expr: &Expr, expected_op: TokenType) -> (&Expr, &Expr) {
+    pub(crate) fn assert_missing_left_binary(expr: &Expr, expected_op: TokenType) -> (&Expr, &Expr) {
         let (left, op, right) = as_binary(expr);
         assert_eq!(op, expected_op);
         assert_eq!(as_operator(left), expected_op);

@@ -114,6 +114,7 @@ pub fn eval_expr(exp: Expr) -> Result<Value, RuntimeError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rlox::parser::tests::parse_ok;
     use crate::rlox::parser::{
         self,
         Expr::{Binary, Operator, SyntaxLiteral, Ternary, Unary},
@@ -124,10 +125,6 @@ mod tests {
         Plus, Question, Semicolon, Slash, Star, While,
     };
     use crate::rlox::token::{Token, TokenType};
-
-    fn parse_ok(input: &str) -> Expr {
-        parser::parse_one_expression(input)
-    }
 
     fn eval_ok(input: &str) -> Value {
         eval_expr(parse_ok(input)).unwrap_or_else(|e| panic!("eval failed for {input:?}: {e}"))
@@ -405,28 +402,29 @@ mod tests {
 
     mod equality {
         use super::*;
+        use crate::rlox::eval::TokenType::EqualEqual;
 
         #[test]
         fn equal_numbers_via_manual_token() {
-            let expr = binary(lit_number(1), Equal, lit_number(1));
+            let expr = binary(lit_number(1), EqualEqual, lit_number(1));
             assert_bool(eval_expr_ok(expr), true);
         }
 
         #[test]
         fn unequal_numbers_via_manual_token() {
-            let expr = binary(lit_number(1), Equal, lit_number(2));
+            let expr = binary(lit_number(1), EqualEqual, lit_number(2));
             assert_bool(eval_expr_ok(expr), false);
         }
 
         #[test]
         fn equal_strings_via_manual_token() {
-            let expr = binary(lit_string("a"), Equal, lit_string("a"));
+            let expr = binary(lit_string("a"), EqualEqual, lit_string("a"));
             assert_bool(eval_expr_ok(expr), true);
         }
 
         #[test]
         fn unequal_strings_via_manual_token() {
-            let expr = binary(lit_string("a"), Equal, lit_string("b"));
+            let expr = binary(lit_string("a"), EqualEqual, lit_string("b"));
             assert_bool(eval_expr_ok(expr), false);
         }
 
@@ -434,7 +432,7 @@ mod tests {
         fn nil_equals_nil_via_manual_token() {
             let expr = binary(
                 SyntaxLiteral(Literal::Nil),
-                Equal,
+                EqualEqual,
                 SyntaxLiteral(Literal::Nil),
             );
             assert_bool(eval_expr_ok(expr), true);
@@ -442,7 +440,7 @@ mod tests {
 
         #[test]
         fn number_not_equal_to_string_via_manual_token() {
-            let expr = binary(lit_number(1), Equal, lit_string("1"));
+            let expr = binary(lit_number(1), EqualEqual, lit_string("1"));
             assert_bool(eval_expr_ok(expr), false);
         }
 
@@ -450,7 +448,7 @@ mod tests {
         fn boolean_equality_via_manual_token() {
             let expr = binary(
                 SyntaxLiteral(Literal::True),
-                Equal,
+                EqualEqual,
                 SyntaxLiteral(Literal::True),
             );
             assert_bool(eval_expr_ok(expr), true);
@@ -495,6 +493,7 @@ mod tests {
     }
 
     mod unary {
+        use crate::rlox::token::TokenType::EqualEqual;
         use super::*;
 
         #[test]
@@ -550,9 +549,9 @@ mod tests {
         #[test]
         fn not_binds_tighter_than_equality_via_manual_token() {
             let expr = binary(
-                unary(Bang, SyntaxLiteral(Literal::True)),
-                Equal,
-                SyntaxLiteral(Literal::False),
+                unary(Bang, SyntaxLiteral(True)),
+                EqualEqual,
+                SyntaxLiteral(False),
             );
             assert_bool(eval_expr_ok(expr), true);
         }
@@ -588,6 +587,7 @@ mod tests {
     }
 
     mod complex {
+        use crate::rlox::token::TokenType::EqualEqual;
         use super::*;
 
         #[test]
@@ -602,7 +602,7 @@ mod tests {
 
         #[test]
         fn string_and_nil_equality_via_manual_token() {
-            let expr = binary(lit_string("a"), Equal, SyntaxLiteral(Literal::Nil));
+            let expr = binary(lit_string("a"), EqualEqual, SyntaxLiteral(Literal::Nil));
             assert_bool(eval_expr_ok(expr), false);
         }
     }
@@ -1192,6 +1192,7 @@ mod tests {
     }
 
     mod edge_cases {
+        use crate::rlox::token::TokenType::EqualEqual;
         use super::*;
 
         #[test]
@@ -1221,7 +1222,7 @@ mod tests {
 
         #[test]
         fn equality_short_circuits_before_type_check_on_manual_token() {
-            let expr = binary(lit_number(1), Equal, lit_string("1"));
+            let expr = binary(lit_number(1), EqualEqual, lit_string("1"));
             assert_bool(eval_expr_ok(expr), false);
         }
 
@@ -1232,7 +1233,7 @@ mod tests {
 
         #[test]
         fn float_equality_via_manual_token() {
-            let expr = binary(lit_float(1.0), Equal, lit_float(1.0));
+            let expr = binary(lit_float(1.0), EqualEqual, lit_float(1.0));
             assert_bool(eval_expr_ok(expr), true);
         }
 
