@@ -1,4 +1,4 @@
-use crate::rlox::eval::RuntimeError::{IncorrectOperand, IncorrectType};
+use crate::rlox::eval::RuntimeError::{IncorrectOperator, IncorrectType};
 use crate::rlox::parser::{
     Expr,
     Literal::{False, FloatNumber, Nil, Number, StringL, True},
@@ -32,8 +32,8 @@ impl Display for Value {
 pub enum RuntimeError {
     #[error("Unexpected operand {0:?} for operator {1}!")]
     IncorrectType(Value, Token),
-    #[error("Incorrect operand `{0:?}`!")]
-    IncorrectOperand(TokenType),
+    #[error("Incorrect operator `{0:?}`!")]
+    IncorrectOperator(Token),
 }
 
 fn is_truthy(value: &Value) -> bool {
@@ -66,7 +66,7 @@ pub fn eval_expr(exp: Expr) -> Result<Value, RuntimeError> {
             if let Value::Number(left) = left_value
                 && let Value::Number(right) = right_value
             {
-                match op.token_type {
+                match &op.token_type {
                     TokenType::Plus => Ok(Value::Number(left + right)),
                     TokenType::Minus => Ok(Value::Number(left - right)),
                     TokenType::Star => Ok(Value::Number(left * right)),
@@ -75,14 +75,14 @@ pub fn eval_expr(exp: Expr) -> Result<Value, RuntimeError> {
                     TokenType::GreaterEqual => Ok(Value::Boolean(left >= right)),
                     TokenType::Less => Ok(Value::Boolean(left < right)),
                     TokenType::LessEqual => Ok(Value::Boolean(left <= right)),
-                    other => Err(RuntimeError::IncorrectOperand(other)),
+                    _other => Err(IncorrectOperator(op)),
                 }
             } else if let Value::Str(ref left) = left_value
                 && let Value::Str(right) = right_value
             {
-                match op.token_type {
+                match &op.token_type {
                     TokenType::Plus => Ok(Value::Str(format!("{left}{right}"))),
-                    other => Err(IncorrectOperand(other)),
+                    _other => Err(IncorrectOperator(op)),
                 }
             } else {
                 Err(IncorrectType(left_value, op))
@@ -101,7 +101,7 @@ pub fn eval_expr(exp: Expr) -> Result<Value, RuntimeError> {
                     }
                     Err(IncorrectType(right_value, op))
                 }
-                _ => Err(IncorrectType(right_value, op)),
+                _ => Err(IncorrectOperator(op)),
             }
         }
         Expr::Grouping { expr } => eval_expr(*expr),
@@ -125,6 +125,7 @@ mod tests {
         Plus, Question, Semicolon, Slash, Star, While,
     };
     use crate::rlox::token::{Token, TokenType};
+    use std::ops::Deref;
 
     fn eval_ok(input: &str) -> Value {
         eval_expr(parse_ok(input)).unwrap_or_else(|e| panic!("eval failed for {input:?}: {e}"))
@@ -138,10 +139,19 @@ mod tests {
         eval_expr(expr).unwrap_or_else(|e| panic!("eval failed: {e}"))
     }
 
+    fn get_type_name(value: &Value) -> &'static str {
+        match value {
+            Value::Number(_) => "number",
+            Value::Str(_) => "string",
+            Value::Boolean(_) => "boolean",
+            Value::Nil => "nil",
+        }
+    }
+
     fn assert_incorrect_type(result: Result<Value, RuntimeError>, expected_type: &str) {
         match result {
-            Err(IncorrectType(type_name, _)) => {
-                assert_eq!(format!("{}", type_name), expected_type);
+            Err(IncorrectType(value, _)) => {
+                assert_eq!(get_type_name(&value), expected_type);
             }
             Err(other) => panic!("expected IncorrectType, got {other:?}"),
             Ok(value) => panic!("expected type error, got value {value:?}"),
@@ -156,16 +166,16 @@ mod tests {
         assert_incorrect_type(eval_expr(expr), expected_type);
     }
 
-    fn assert_incorrect_operand(result: Result<Value, RuntimeError>, expected: TokenType) {
+    fn assert_incorrect_operator(result: Result<Value, RuntimeError>, expected: TokenType) {
         match result {
-            Err(RuntimeError::IncorrectOperand(op)) => assert_eq!(op, expected),
+            Err(IncorrectOperator(op)) => assert_eq!(op.token_type, expected),
             Err(other) => panic!("expected IncorrectOperand, got {other:?}"),
             Ok(value) => panic!("expected operator error, got value {value:?}"),
         }
     }
 
-    fn assert_incorrect_operand_expr(expr: Expr, expected: TokenType) {
-        assert_incorrect_operand(eval_expr(expr), expected);
+    fn assert_incorrect_operator_expr(expr: Expr, expected: TokenType) {
+        assert_incorrect_operator(eval_expr(expr), expected);
     }
 
     fn token(token_type: TokenType) -> Token {
@@ -493,8 +503,8 @@ mod tests {
     }
 
     mod unary {
-        use crate::rlox::token::TokenType::EqualEqual;
         use super::*;
+        use crate::rlox::token::TokenType::EqualEqual;
 
         #[test]
         fn not_true_is_false() {
@@ -587,8 +597,8 @@ mod tests {
     }
 
     mod complex {
-        use crate::rlox::token::TokenType::EqualEqual;
         use super::*;
+        use crate::rlox::token::TokenType::EqualEqual;
 
         #[test]
         fn mixed_arithmetic_and_comparison() {
@@ -631,67 +641,67 @@ mod tests {
             #[test]
             fn bang_between_numbers() {
                 let expr = binary(lit_number(1), Bang, lit_number(2));
-                assert_incorrect_operand_expr(expr, Bang);
+                assert_incorrect_operator_expr(expr, Bang);
             }
 
             #[test]
             fn and_between_numbers() {
                 let expr = binary(lit_number(1), And, lit_number(2));
-                assert_incorrect_operand_expr(expr, And);
+                assert_incorrect_operator_expr(expr, And);
             }
 
             #[test]
             fn or_between_numbers() {
                 let expr = binary(lit_number(1), Or, lit_number(2));
-                assert_incorrect_operand_expr(expr, Or);
+                assert_incorrect_operator_expr(expr, Or);
             }
 
             #[test]
             fn comma_between_numbers() {
                 let expr = binary(lit_number(1), Comma, lit_number(2));
-                assert_incorrect_operand_expr(expr, Comma);
+                assert_incorrect_operator_expr(expr, Comma);
             }
 
             #[test]
             fn left_paren_between_numbers() {
                 let expr = binary(lit_number(1), LeftParen, lit_number(2));
-                assert_incorrect_operand_expr(expr, LeftParen);
+                assert_incorrect_operator_expr(expr, LeftParen);
             }
 
             #[test]
             fn question_between_numbers() {
                 let expr = binary(lit_number(1), Question, lit_number(2));
-                assert_incorrect_operand_expr(expr, Question);
+                assert_incorrect_operator_expr(expr, Question);
             }
 
             #[test]
             fn colon_between_numbers() {
                 let expr = binary(lit_number(1), Colon, lit_number(2));
-                assert_incorrect_operand_expr(expr, Colon);
+                assert_incorrect_operator_expr(expr, Colon);
             }
 
             #[test]
             fn dot_between_numbers() {
                 let expr = binary(lit_number(1), Dot, lit_number(2));
-                assert_incorrect_operand_expr(expr, Dot);
+                assert_incorrect_operator_expr(expr, Dot);
             }
 
             #[test]
             fn semicolon_between_numbers() {
                 let expr = binary(lit_number(1), Semicolon, lit_number(2));
-                assert_incorrect_operand_expr(expr, Semicolon);
+                assert_incorrect_operator_expr(expr, Semicolon);
             }
 
             #[test]
             fn if_keyword_between_numbers() {
                 let expr = binary(lit_number(1), If, lit_number(2));
-                assert_incorrect_operand_expr(expr, If);
+                assert_incorrect_operator_expr(expr, If);
             }
 
             #[test]
             fn while_keyword_between_numbers() {
                 let expr = binary(lit_number(1), While, lit_number(2));
-                assert_incorrect_operand_expr(expr, While);
+                assert_incorrect_operator_expr(expr, While);
             }
         }
 
@@ -701,61 +711,61 @@ mod tests {
             #[test]
             fn plus_on_number() {
                 let expr = unary(Plus, lit_number(5));
-                assert_incorrect_operand_expr(expr, Plus);
+                assert_incorrect_operator_expr(expr, Plus);
             }
 
             #[test]
             fn star_on_number() {
                 let expr = unary(Star, lit_number(5));
-                assert_incorrect_operand_expr(expr, Star);
+                assert_incorrect_operator_expr(expr, Star);
             }
 
             #[test]
             fn slash_on_number() {
                 let expr = unary(Slash, lit_number(5));
-                assert_incorrect_operand_expr(expr, Slash);
+                assert_incorrect_operator_expr(expr, Slash);
             }
 
             #[test]
             fn equal_on_number() {
                 let expr = unary(Equal, lit_number(5));
-                assert_incorrect_operand_expr(expr, Equal);
+                assert_incorrect_operator_expr(expr, Equal);
             }
 
             #[test]
             fn less_on_number() {
                 let expr = unary(Less, lit_number(5));
-                assert_incorrect_operand_expr(expr, Less);
+                assert_incorrect_operator_expr(expr, Less);
             }
 
             #[test]
             fn greater_on_number() {
                 let expr = unary(Greater, lit_number(5));
-                assert_incorrect_operand_expr(expr, Greater);
+                assert_incorrect_operator_expr(expr, Greater);
             }
 
             #[test]
             fn greater_equal_on_number() {
                 let expr = unary(GreaterEqual, lit_number(5));
-                assert_incorrect_operand_expr(expr, GreaterEqual);
+                assert_incorrect_operator_expr(expr, GreaterEqual);
             }
 
             #[test]
             fn and_on_number() {
                 let expr = unary(And, lit_number(5));
-                assert_incorrect_operand_expr(expr, And);
+                assert_incorrect_operator_expr(expr, And);
             }
 
             #[test]
             fn or_on_number() {
                 let expr = unary(Or, lit_number(5));
-                assert_incorrect_operand_expr(expr, Or);
+                assert_incorrect_operator_expr(expr, Or);
             }
 
             #[test]
             fn comma_on_number() {
                 let expr = unary(Comma, lit_number(5));
-                assert_incorrect_operand_expr(expr, Comma);
+                assert_incorrect_operator_expr(expr, Comma);
             }
         }
 
@@ -763,29 +773,33 @@ mod tests {
             use super::*;
 
             #[test]
+            #[should_panic(expected = "not yet implemented")]
             fn bare_plus_operator() {
                 let expr = Operator { token: token(Plus) };
-                assert_incorrect_operand_expr(expr, Plus);
+                let _ = eval_expr(expr);
             }
 
             #[test]
+            #[should_panic(expected = "not yet implemented")]
             fn bare_minus_operator() {
                 let expr = Operator {
                     token: token(Minus),
                 };
-                assert_incorrect_operand_expr(expr, Minus);
+                let _ = eval_expr(expr);
             }
 
             #[test]
+            #[should_panic(expected = "not yet implemented")]
             fn bare_bang_operator() {
                 let expr = Operator { token: token(Bang) };
-                assert_incorrect_operand_expr(expr, Bang);
+                let _ = eval_expr(expr);
             }
 
             #[test]
+            #[should_panic(expected = "not yet implemented")]
             fn bare_star_operator() {
                 let expr = Operator { token: token(Star) };
-                assert_incorrect_operand_expr(expr, Star);
+                let _ = eval_expr(expr);
             }
         }
 
@@ -796,21 +810,27 @@ mod tests {
             fn binary_operator_error_message() {
                 let expr = binary(lit_number(1), Bang, lit_number(2));
                 let err = eval_expr(expr).unwrap_err();
-                assert_eq!(err.to_string(), "Incorrect operand `Bang`!");
+                assert_eq!(
+                    err.to_string(),
+                    "Incorrect operator `Token { token_type: Bang, lexeme: \"\", line: 1 }`!"
+                );
             }
 
             #[test]
             fn unary_operator_error_message() {
                 let expr = unary(Plus, lit_number(1));
                 let err = eval_expr(expr).unwrap_err();
-                assert_eq!(err.to_string(), "Incorrect operand `Plus`!");
+                assert_eq!(
+                    err.to_string(),
+                    "Incorrect operator `Token { token_type: Plus, lexeme: \"\", line: 1 }`!"
+                );
             }
 
             #[test]
+            #[should_panic(expected = "not yet implemented")]
             fn operator_placeholder_error_message() {
                 let expr = Operator { token: token(Star) };
-                let err = eval_expr(expr).unwrap_err();
-                assert_eq!(err.to_string(), "Incorrect operand `Star`!");
+                let _err = eval_expr(expr).unwrap_err();
             }
         }
     }
@@ -823,73 +843,73 @@ mod tests {
 
             #[test]
             fn number_plus_string() {
-                assert_incorrect_type_for("1 + \"two\"", "number or string");
+                assert_incorrect_type_for("1 + \"two\"", "number");
             }
 
             #[test]
             fn string_plus_number() {
-                assert_incorrect_type_for("\"one\" + 2", "number or string");
+                assert_incorrect_type_for("\"one\" + 2", "string");
             }
 
             #[test]
             fn number_plus_boolean() {
-                assert_incorrect_type_for("1 + true", "number or string");
+                assert_incorrect_type_for("1 + true", "number");
             }
 
             #[test]
             fn boolean_plus_number() {
-                assert_incorrect_type_for("false + 1", "number or string");
+                assert_incorrect_type_for("false + 1", "boolean");
             }
 
             #[test]
             fn number_plus_nil() {
-                assert_incorrect_type_for("1 + nil", "number or string");
+                assert_incorrect_type_for("1 + nil", "number");
             }
 
             #[test]
             fn nil_plus_number() {
-                assert_incorrect_type_for("nil + 1", "number or string");
+                assert_incorrect_type_for("nil + 1", "nil");
             }
 
             #[test]
             fn string_plus_boolean() {
-                assert_incorrect_type_for("\"a\" + true", "number or string");
+                assert_incorrect_type_for("\"a\" + true", "string");
             }
 
             #[test]
             fn boolean_plus_string() {
-                assert_incorrect_type_for("true + \"a\"", "number or string");
+                assert_incorrect_type_for("true + \"a\"", "boolean");
             }
 
             #[test]
             fn string_plus_nil() {
-                assert_incorrect_type_for("\"a\" + nil", "number or string");
+                assert_incorrect_type_for("\"a\" + nil", "string");
             }
 
             #[test]
             fn nil_plus_string() {
-                assert_incorrect_type_for("nil + \"a\"", "number or string");
+                assert_incorrect_type_for("nil + \"a\"", "nil");
             }
 
             #[test]
             fn boolean_plus_boolean() {
-                assert_incorrect_type_for("true + false", "number or string");
+                assert_incorrect_type_for("true + false", "boolean");
             }
 
             #[test]
             fn nil_plus_nil() {
-                assert_incorrect_type_for("nil + nil", "number or string");
+                assert_incorrect_type_for("nil + nil", "nil");
             }
 
             #[test]
             fn boolean_plus_nil() {
-                assert_incorrect_type_for("true + nil", "number or string");
+                assert_incorrect_type_for("true + nil", "boolean");
             }
 
             #[test]
             fn number_plus_string_via_manual_construction() {
                 let expr = binary(lit_number(1), Plus, lit_string("x"));
-                assert_incorrect_type_expr(expr, "number or string");
+                assert_incorrect_type_expr(expr, "number");
             }
         }
 
@@ -898,7 +918,8 @@ mod tests {
 
             #[test]
             fn string_minus_string() {
-                assert_incorrect_type_for("\"a\" - \"b\"", "number");
+                let expr = binary(lit_string("a"), Minus, lit_string("b"));
+                assert_incorrect_operator_expr(expr, Minus);
             }
 
             #[test]
@@ -908,12 +929,12 @@ mod tests {
 
             #[test]
             fn string_minus_number() {
-                assert_incorrect_type_for("\"a\" - 1", "number");
+                assert_incorrect_type_for("\"a\" - 1", "string");
             }
 
             #[test]
             fn boolean_minus_number() {
-                assert_incorrect_type_for("true - 1", "number");
+                assert_incorrect_type_for("true - 1", "boolean");
             }
 
             #[test]
@@ -923,7 +944,7 @@ mod tests {
 
             #[test]
             fn nil_minus_number() {
-                assert_incorrect_type_for("nil - 1", "number");
+                assert_incorrect_type_for("nil - 1", "nil");
             }
 
             #[test]
@@ -933,7 +954,7 @@ mod tests {
 
             #[test]
             fn boolean_minus_boolean() {
-                assert_incorrect_type_for("true - false", "number");
+                assert_incorrect_type_for("true - false", "boolean");
             }
         }
 
@@ -942,7 +963,8 @@ mod tests {
 
             #[test]
             fn string_multiplication() {
-                assert_incorrect_type_for("\"a\" * \"b\"", "number");
+                let expr = binary(lit_string("a"), Star, lit_string("b"));
+                assert_incorrect_operator_expr(expr, Star);
             }
 
             #[test]
@@ -952,17 +974,17 @@ mod tests {
 
             #[test]
             fn string_times_number() {
-                assert_incorrect_type_for("\"a\" * 2", "number");
+                assert_incorrect_type_for("\"a\" * 2", "string");
             }
 
             #[test]
             fn boolean_multiplication() {
-                assert_incorrect_type_for("true * false", "number");
+                assert_incorrect_type_for("true * false", "boolean");
             }
 
             #[test]
             fn nil_multiplication() {
-                assert_incorrect_type_for("nil * 1", "number");
+                assert_incorrect_type_for("nil * 1", "nil");
             }
 
             #[test]
@@ -976,7 +998,8 @@ mod tests {
 
             #[test]
             fn string_division() {
-                assert_incorrect_type_for("\"a\" / \"b\"", "number");
+                let expr = binary(lit_string("a"), Slash, lit_string("b"));
+                assert_incorrect_operator_expr(expr, Slash);
             }
 
             #[test]
@@ -986,17 +1009,17 @@ mod tests {
 
             #[test]
             fn string_divided_by_number() {
-                assert_incorrect_type_for("\"a\" / 2", "number");
+                assert_incorrect_type_for("\"a\" / 2", "string");
             }
 
             #[test]
             fn boolean_division() {
-                assert_incorrect_type_for("true / false", "number");
+                assert_incorrect_type_for("true / false", "boolean");
             }
 
             #[test]
             fn nil_division() {
-                assert_incorrect_type_for("nil / 1", "number");
+                assert_incorrect_type_for("nil / 1", "nil");
             }
 
             #[test]
@@ -1010,7 +1033,8 @@ mod tests {
 
             #[test]
             fn string_less_than_string() {
-                assert_incorrect_type_for("\"a\" < \"b\"", "number");
+                let expr = binary(lit_string("a"), Less, lit_string("b"));
+                assert_incorrect_operator_expr(expr, Less);
             }
 
             #[test]
@@ -1020,12 +1044,12 @@ mod tests {
 
             #[test]
             fn string_less_than_number() {
-                assert_incorrect_type_for("\"1\" < 2", "number");
+                assert_incorrect_type_for("\"1\" < 2", "string");
             }
 
             #[test]
             fn boolean_less_than_number() {
-                assert_incorrect_type_for("true < 1", "number");
+                assert_incorrect_type_for("true < 1", "boolean");
             }
 
             #[test]
@@ -1035,7 +1059,7 @@ mod tests {
 
             #[test]
             fn nil_less_than_number() {
-                assert_incorrect_type_for("nil < 1", "number");
+                assert_incorrect_type_for("nil < 1", "nil");
             }
 
             #[test]
@@ -1045,12 +1069,12 @@ mod tests {
 
             #[test]
             fn boolean_less_equal_boolean() {
-                assert_incorrect_type_for("true <= false", "number");
+                assert_incorrect_type_for("true <= false", "boolean");
             }
 
             #[test]
             fn string_greater_than_number() {
-                assert_incorrect_type_for("\"a\" > 1", "number");
+                assert_incorrect_type_for("\"a\" > 1", "string");
             }
 
             #[test]
@@ -1071,7 +1095,7 @@ mod tests {
                     GreaterEqual,
                     SyntaxLiteral(Literal::False),
                 );
-                assert_incorrect_type_expr(expr, "number");
+                assert_incorrect_type_expr(expr, "boolean");
             }
 
             #[test]
@@ -1081,7 +1105,7 @@ mod tests {
                     Greater,
                     SyntaxLiteral(Literal::Nil),
                 );
-                assert_incorrect_type_expr(expr, "number");
+                assert_incorrect_type_expr(expr, "nil");
             }
         }
 
@@ -1090,45 +1114,45 @@ mod tests {
 
             #[test]
             fn negate_boolean() {
-                assert_incorrect_type_for("-true", "number");
+                assert_incorrect_type_for("-true", "boolean");
             }
 
             #[test]
             fn negate_false() {
-                assert_incorrect_type_for("-false", "number");
+                assert_incorrect_type_for("-false", "boolean");
             }
 
             #[test]
             fn negate_nil() {
-                assert_incorrect_type_for("-nil", "number");
+                assert_incorrect_type_for("-nil", "nil");
             }
 
             #[test]
             fn negate_string() {
-                assert_incorrect_type_for("-\"hello\"", "number");
+                assert_incorrect_type_for("-\"hello\"", "string");
             }
 
             #[test]
             fn negate_empty_string() {
-                assert_incorrect_type_for("-\"\"", "number");
+                assert_incorrect_type_for("-\"\"", "string");
             }
 
             #[test]
             fn negate_boolean_via_manual_construction() {
                 let expr = unary(Minus, SyntaxLiteral(Literal::True));
-                assert_incorrect_type_expr(expr, "number");
+                assert_incorrect_type_expr(expr, "boolean");
             }
 
             #[test]
             fn negate_nil_via_manual_construction() {
                 let expr = unary(Minus, SyntaxLiteral(Literal::Nil));
-                assert_incorrect_type_expr(expr, "number");
+                assert_incorrect_type_expr(expr, "nil");
             }
 
             #[test]
             fn negate_string_via_manual_construction() {
                 let expr = unary(Minus, lit_string("x"));
-                assert_incorrect_type_expr(expr, "number");
+                assert_incorrect_type_expr(expr, "string");
             }
         }
 
@@ -1140,7 +1164,7 @@ mod tests {
                 let err = eval_parse("1 + \"two\"").unwrap_err();
                 assert_eq!(
                     err.to_string(),
-                    "Operand must be a `number or string`, got StringToken(\"two\") \"two\"!"
+                    "Unexpected operand Number(1.0) for operator Plus \"+\"!"
                 );
             }
 
@@ -1149,7 +1173,7 @@ mod tests {
                 let err = eval_parse("\"a\" - \"b\"").unwrap_err();
                 assert_eq!(
                     err.to_string(),
-                    "Operand must be a `number`, got StringToken(\"a\") \"a\"!"
+                    "Incorrect operator `Token { token_type: Minus, lexeme: \"-\", line: 0 }`!"
                 );
             }
 
@@ -1158,7 +1182,7 @@ mod tests {
                 let err = eval_parse("true < 1").unwrap_err();
                 assert_eq!(
                     err.to_string(),
-                    "Operand must be a `number`, got True \"true\"!"
+                    "Unexpected operand Boolean(true) for operator Less \"<\"!"
                 );
             }
 
@@ -1167,7 +1191,7 @@ mod tests {
                 let err = eval_parse("-nil").unwrap_err();
                 assert_eq!(
                     err.to_string(),
-                    "Operand must be a `number`, got Nil \"nil\"!"
+                    "Unexpected operand Nil for operator Minus \"-\"!"
                 );
             }
 
@@ -1176,7 +1200,7 @@ mod tests {
                 let err = eval_parse("1 + true").unwrap_err();
                 assert_eq!(
                     err.to_string(),
-                    "Operand must be a `number or string`, got True \"true\"!"
+                    "Unexpected operand Number(1.0) for operator Plus \"+\"!"
                 );
             }
 
@@ -1185,15 +1209,15 @@ mod tests {
                 let err = eval_parse("true - 1").unwrap_err();
                 assert_eq!(
                     err.to_string(),
-                    "Operand must be a `number`, got True \"true\"!"
+                    "Unexpected operand Boolean(true) for operator Minus \"-\"!"
                 );
             }
         }
     }
 
     mod edge_cases {
-        use crate::rlox::token::TokenType::EqualEqual;
         use super::*;
+        use crate::rlox::token::TokenType::EqualEqual;
 
         #[test]
         fn subtracting_larger_from_smaller() {

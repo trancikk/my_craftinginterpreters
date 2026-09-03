@@ -1,4 +1,5 @@
-use crate::rlox::parser::Parser;
+use crate::rlox::eval::{RuntimeError, eval_expr};
+use crate::rlox::parser::{Expr, Parser};
 use crate::rlox::scanner::Scanner;
 use crate::rlox::token::Token;
 use std::fs::File;
@@ -62,6 +63,21 @@ impl RLox {
     pub fn report_token(&mut self, token: &Token, msg: &str) {
         self.had_error = true;
         eprintln!("{:?} at '{:?}' {:?}", token.line, token.lexeme, msg);
+    }
+
+    pub fn interpret(&mut self, expr: Expr) {
+        let result = eval_expr(expr);
+        match result {
+            Ok(value) => println!("{:?}", value),
+            Err(e) => match e {
+                RuntimeError::IncorrectType(_, token) => {
+                    self.report_token(&token, "Error during expression evaluation");
+                }
+                RuntimeError::IncorrectOperator(token) => {
+                    self.report_token(&token, "Error during expression evaluation")
+                }
+            },
+        }
     }
 }
 
