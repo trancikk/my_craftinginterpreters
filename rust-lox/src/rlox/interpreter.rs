@@ -5,9 +5,20 @@ use crate::rlox::token::Token;
 use std::fs::File;
 use std::io;
 use std::io::{Read, Write};
+use std::process::exit;
+use thiserror::Error;
 
 pub struct RLox {
     pub had_error: bool,
+}
+
+// TODO add RuntimeError, use it in report error method
+#[derive(Error, Debug)]
+pub enum RloxError {
+    #[error("Unexpected token `{0:?}`!")]
+    ParserError(Token, String),
+    #[error("Unexpected Symbols `{1:?}` on line: `{0:?}`!")]
+    ScannerError(u64, char, String),
 }
 
 impl RLox {
@@ -16,7 +27,11 @@ impl RLox {
         let mut file = File::open(path)?;
         let mut result = String::new();
         file.read_to_string(&mut result)?;
-        self.run(&result)
+        self.run(&result);
+        if self.had_error {
+            exit(1);
+        }
+        Ok(())
     }
 
     pub fn run_prompt(&mut self) -> anyhow::Result<()> {
@@ -31,9 +46,9 @@ impl RLox {
             let count = stdin.read_line(&mut line);
             if let Ok(count) = count {
                 if count != 0 {
-                    self.run(&line)?;
+                    self.run(&line);
                     line.clear();
-                    self.had_error = false
+                    self.had_error = false;
                 } else {
                     break;
                 }
@@ -42,13 +57,23 @@ impl RLox {
         Ok(())
     }
 
-    pub fn run(&mut self, code: &str) -> anyhow::Result<()> {
+    pub fn run(&mut self, code: &str) {
         let lines = code.lines();
         let scanner = Scanner::new(lines);
-        let mut parser = Parser::new(scanner, self);
-        parser.parse();
+        let mut parser = Parser::new(scanner);
+        loop {
+            let expr = parser.expression();
+            match expr {
+                None => {
+                    return;
+                }
+                Some(expr) => {
+                    self.interpret(expr);
+                }
+            }
+        }
+        {}
         // let _: Vec<Token> = scanner.collect(self);
-        Ok(())
     }
 
     pub fn error(&mut self, line: u64, message: &str) {
@@ -89,7 +114,6 @@ mod tests {
     fn it_works() {
         let mut rlox = RLox { had_error: false };
         let result = rlox.run("1+2");
-        assert!(result.is_ok());
         assert!(!rlox.had_error);
     }
 }

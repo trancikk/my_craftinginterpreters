@@ -1,5 +1,5 @@
-use crate::rlox::interpreter::RLox;
-use crate::rlox::parser::Expr::{Binary, Grouping, Operator, Ternary, Unary};
+use crate::rlox::interpreter::RloxError;
+use crate::rlox::parser::Expr::{Binary, Grouping, Ternary, Unary};
 use crate::rlox::scanner::Scanner;
 use crate::rlox::token::TokenType::{
     Bang, BangEqual, Colon, Comma, EqualEqual, False, FloatNumber, Greater, GreaterEqual,
@@ -43,18 +43,16 @@ pub enum Expr {
     },
 }
 
-pub struct Parser<'src, 'lox> {
+pub struct Parser<'src> {
     scanner: Scanner<'src>,
     current_token: Option<Token>,
-    interpreter: &'lox mut RLox,
 }
 
-impl<'src, 'lox> Parser<'src, 'lox> {
-    pub fn new(scanner: Scanner<'src>, interpreter: &'lox mut RLox) -> Parser<'src, 'lox> {
+impl<'src> Parser<'src> {
+    pub fn new(scanner: Scanner<'src>) -> Parser<'src> {
         Parser {
             scanner,
             current_token: None,
-            interpreter,
         }
     }
 
@@ -62,31 +60,35 @@ impl<'src, 'lox> Parser<'src, 'lox> {
         while self.expression().is_some() {}
     }
 
-    fn report_binary_operation_error(&mut self, token: &Token) {
-        self.interpreter.error(
-            token.line,
-            &format!("Binary operation {token:?} is missing left argument!"),
-        );
+    fn report_binary_operation_error(token: Token) -> RloxError {
+        let msg = format!("Binary operation {token:?} is missing left argument!");
+        Self::report_error(token, msg)
     }
 
-    fn produce_binary_error(&mut self, expr: Expr, token: Token) -> Expr {
-        Binary {
-            left: Box::new(Operator {
-                token: token.clone(),
-            }),
-            op: token,
-            right: Box::new(expr),
-        }
+    fn report_error(token: Token, msg: String) -> RloxError {
+        RloxError::ParserError(token, msg)
     }
 
-    fn produce_and_report_binary_error(&mut self, expr: Expr, token: Token) -> Option<Expr> {
-        self.report_binary_operation_error(&token);
-        Some(self.produce_binary_error(expr, token))
+    // fn produce_binary_error(&mut self, expr: Expr, token: Token) -> Expr {
+    //     Binary {
+    //         left: Box::new(Operator {
+    //             token: token.clone(),
+    //         }),
+    //         op: token,
+    //         right: Box::new(expr),
+    //     }
+    // }
+
+    fn produce_and_report_binary_error(expr: Expr, token: Token) -> Result<Expr, RloxError> {
+        drop(expr);
+        // self.produce_binary_error(expr, token);
+        Err(Self::report_binary_operation_error(token))
     }
-    fn expression(&mut self) -> Option<Expr> {
+
+    pub fn expression(&mut self) -> Result<Expr, RloxError> {
         if let Some(token) = self.match_and_return(&Comma) {
             let expr = self.expression()?;
-            return self.produce_and_report_binary_error(expr, token);
+            return Self::produce_and_report_binary_error(expr, token);
         }
         let mut exp = self.ternary()?;
         while let Some(coma) = self.match_and_return(&Comma) {
@@ -97,10 +99,10 @@ impl<'src, 'lox> Parser<'src, 'lox> {
                 right: Box::new(right),
             }
         }
-        Some(exp)
+        Ok(exp)
     }
 
-    fn ternary(&mut self) -> Option<Expr> {
+    fn ternary(&mut self) -> Result<Expr, RloxError> {
         let mut expr = self.equality()?;
         if self.match_and_return(&Question).is_some() {
             let left = self.expression()?;
@@ -108,7 +110,7 @@ impl<'src, 'lox> Parser<'src, 'lox> {
                 &Colon,
                 "Expected ':' in a ternary operator after the predicate",
             )?;
-            if let Some(right) = self.ternary() {
+            if let Ok(right) = self.ternary() {
                 expr = Ternary {
                     predicate: Box::new(expr),
                     left: Box::new(left),
@@ -121,13 +123,13 @@ impl<'src, 'lox> Parser<'src, 'lox> {
                 );
             }
         }
-        Some(expr)
+        Ok(expr)
     }
-    fn equality(&mut self) -> Option<Expr> {
+    fn equality(&mut self) -> Result<Expr, RloxError> {
         let ops = [BangEqual, EqualEqual];
         if let Some(token) = self.match_any_and_return(&ops) {
-            let right = self.equality()?;
-            return self.produce_and_report_binary_error(right, token);
+            let expr = self.equality()?;
+            return Self::produce_and_report_binary_error(expr, token);
         }
         let mut exp = self.comparison()?;
 
@@ -139,14 +141,14 @@ impl<'src, 'lox> Parser<'src, 'lox> {
                 right: Box::new(right),
             }
         }
-        Some(exp)
+        Ok(exp)
     }
 
-    fn comparison(&mut self) -> Option<Expr> {
+    fn comparison(&mut self) -> Result<Expr, RloxError> {
         let ops = [Greater, GreaterEqual, Less, LessEqual];
         if let Some(token) = self.match_any_and_return(&ops) {
             let expr = self.comparison()?;
-            return self.produce_and_report_binary_error(expr, token);
+            return Self::produce_and_report_binary_error(expr, token);
         }
 
         let mut expr = self.term()?;
@@ -159,13 +161,13 @@ impl<'src, 'lox> Parser<'src, 'lox> {
                 right: Box::new(right),
             }
         }
-        Some(expr)
+        Ok(expr)
     }
 
-    fn term(&mut self) -> Option<Expr> {
+    fn term(&mut self) -> Result<Expr, RloxError> {
         if let Some(token) = self.match_and_return(&Plus) {
             let expr = self.term()?;
-            return self.produce_and_report_binary_error(expr, token);
+            return Self::produce_and_report_binary_error(expr, token);
         }
         let mut expr = self.factor()?;
 
@@ -177,15 +179,15 @@ impl<'src, 'lox> Parser<'src, 'lox> {
                 right: Box::new(right),
             }
         }
-        Some(expr)
+        Ok(expr)
     }
 
-    fn factor(&mut self) -> Option<Expr> {
+    fn factor(&mut self) -> Result<Expr, RloxError> {
         let ops = [Slash, Star];
 
         if let Some(token) = self.match_any_and_return(&ops) {
             let expr = self.factor()?;
-            return self.produce_and_report_binary_error(expr, token);
+            return Self::produce_and_report_binary_error(expr, token);
         }
 
         let mut expr = self.unary()?;
@@ -198,13 +200,13 @@ impl<'src, 'lox> Parser<'src, 'lox> {
                 right: Box::new(right),
             }
         }
-        Some(expr)
+        Ok(expr)
     }
 
-    fn unary(&mut self) -> Option<Expr> {
+    fn unary(&mut self) -> Result<Expr, RloxError> {
         if let Some(token) = self.match_any_and_return(&[Bang, Minus]) {
             let right = self.unary()?;
-            return Some(Unary {
+            return Ok(Unary {
                 op: token,
                 right: Box::new(right),
             });
@@ -212,19 +214,19 @@ impl<'src, 'lox> Parser<'src, 'lox> {
         self.primary()
     }
 
-    fn primary(&mut self) -> Option<Expr> {
+    fn primary(&mut self) -> Result<Expr, RloxError> {
         let next = self.advance()?;
         match next.token_type.clone() {
-            False => Some(Expr::SyntaxLiteral(Literal::False)),
-            True => Some(Expr::SyntaxLiteral(Literal::True)),
-            Nil => Some(Expr::SyntaxLiteral(Literal::Nil)),
-            Number(val) => Some(Expr::SyntaxLiteral(Literal::Number(val))),
-            FloatNumber(val) => Some(Expr::SyntaxLiteral(Literal::FloatNumber(val))),
-            StringToken(val) => Some(Expr::SyntaxLiteral(Literal::StringL(val.clone()))),
+            False => Ok(Expr::SyntaxLiteral(Literal::False)),
+            True => Ok(Expr::SyntaxLiteral(Literal::True)),
+            Nil => Ok(Expr::SyntaxLiteral(Literal::Nil)),
+            Number(val) => Ok(Expr::SyntaxLiteral(Literal::Number(val))),
+            FloatNumber(val) => Ok(Expr::SyntaxLiteral(Literal::FloatNumber(val))),
+            StringToken(val) => Ok(Expr::SyntaxLiteral(Literal::StringL(val.clone()))),
             LeftParen => {
                 let expr = self.expression()?;
                 self.consume(&RightParen, "Expect ')' after expression.")?;
-                Some(Grouping {
+                Ok(Grouping {
                     expr: Box::new(expr),
                 })
             }
@@ -236,7 +238,7 @@ impl<'src, 'lox> Parser<'src, 'lox> {
         }
     }
 
-    fn consume(&mut self, token_type: &TokenType, message: &str) -> Option<Token> {
+    fn consume(&mut self, token_type: &TokenType, message: &str) -> Result<Token, RloxError> {
         let next = self.peek().cloned();
         if let Some(next) = next {
             return if next.token_type == *token_type {
@@ -280,7 +282,7 @@ impl<'src, 'lox> Parser<'src, 'lox> {
         }
         None
     }
-    fn advance(&mut self) -> Option<Token> {
+    fn advance(&mut self) -> Result<Token, RloxError> {
         let token = self.current_token.take();
         if token.is_none() {
             self.scanner.scan_token(self.interpreter)
@@ -445,7 +447,10 @@ pub(crate) mod tests {
         }
     }
 
-    pub(crate) fn assert_missing_left_binary(expr: &Expr, expected_op: TokenType) -> (&Expr, &Expr) {
+    pub(crate) fn assert_missing_left_binary(
+        expr: &Expr,
+        expected_op: TokenType,
+    ) -> (&Expr, &Expr) {
         let (left, op, right) = as_binary(expr);
         assert_eq!(op, expected_op);
         assert_eq!(as_operator(left), expected_op);
@@ -478,12 +483,18 @@ pub(crate) mod tests {
 
         #[test]
         fn parses_true() {
-            assert!(matches!(parse_ok("true"), Expr::SyntaxLiteral(Literal::True)));
+            assert!(matches!(
+                parse_ok("true"),
+                Expr::SyntaxLiteral(Literal::True)
+            ));
         }
 
         #[test]
         fn parses_false() {
-            assert!(matches!(parse_ok("false"), Expr::SyntaxLiteral(Literal::False)));
+            assert!(matches!(
+                parse_ok("false"),
+                Expr::SyntaxLiteral(Literal::False)
+            ));
         }
 
         #[test]

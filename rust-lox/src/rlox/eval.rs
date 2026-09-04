@@ -125,7 +125,6 @@ mod tests {
         Plus, Question, Semicolon, Slash, Star, While,
     };
     use crate::rlox::token::{Token, TokenType};
-    use std::ops::Deref;
 
     fn eval_ok(input: &str) -> Value {
         eval_expr(parse_ok(input)).unwrap_or_else(|e| panic!("eval failed for {input:?}: {e}"))
