@@ -64,10 +64,10 @@ impl RLox {
         loop {
             let expr = parser.expression();
             match expr {
-                None => {
+                Err(_) => {
                     return;
                 }
-                Some(expr) => {
+                Ok(expr) => {
                     self.interpret(expr);
                 }
             }

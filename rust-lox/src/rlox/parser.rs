@@ -57,16 +57,20 @@ impl<'src> Parser<'src> {
     }
 
     pub fn parse(&mut self) {
-        while self.expression().is_some() {}
+        while self.expression().is_ok() {}
     }
 
     fn report_binary_operation_error(token: Token) -> RloxError {
         let msg = format!("Binary operation {token:?} is missing left argument!");
-        Self::report_error(token, msg)
+        RloxError::ParserError(token, msg)
     }
 
-    fn report_error(token: Token, msg: String) -> RloxError {
-        RloxError::ParserError(token, msg)
+    fn produce_error_for_expression(token: Token, msg: &str) -> Result<Expr, RloxError> {
+        Err(RloxError::ParserError(token, String::from(msg)))
+    }
+
+    fn produce_error_for_token(token: Token, msg: &str) -> Result<Token, RloxError> {
+        Err(RloxError::ParserError(token, String::from(msg)))
     }
 
     // fn produce_binary_error(&mut self, expr: Expr, token: Token) -> Expr {
@@ -86,12 +90,12 @@ impl<'src> Parser<'src> {
     }
 
     pub fn expression(&mut self) -> Result<Expr, RloxError> {
-        if let Some(token) = self.match_and_return(&Comma) {
+        if let Ok(token) = self.match_and_return(&Comma) {
             let expr = self.expression()?;
             return Self::produce_and_report_binary_error(expr, token);
         }
         let mut exp = self.ternary()?;
-        while let Some(coma) = self.match_and_return(&Comma) {
+        while let Ok(coma) = self.match_and_return(&Comma) {
             let right = self.ternary()?;
             exp = Binary {
                 left: Box::new(exp),
@@ -104,36 +108,31 @@ impl<'src> Parser<'src> {
 
     fn ternary(&mut self) -> Result<Expr, RloxError> {
         let mut expr = self.equality()?;
-        if self.match_and_return(&Question).is_some() {
+        if self.match_and_return(&Question).is_ok() {
             let left = self.expression()?;
             self.consume(
                 &Colon,
                 "Expected ':' in a ternary operator after the predicate",
             )?;
-            if let Ok(right) = self.ternary() {
-                expr = Ternary {
-                    predicate: Box::new(expr),
-                    left: Box::new(left),
-                    right: Box::new(right),
-                }
-            } else {
-                self.interpreter.error(
-                    self.scanner.line_index,
-                    "Expected an expression after ':' in a ternary operator",
-                );
+            let ternary_result = self.ternary()?;
+            expr = Ternary {
+                predicate: Box::new(expr),
+                left: Box::new(left),
+                right: Box::new(ternary_result),
             }
         }
         Ok(expr)
     }
+
     fn equality(&mut self) -> Result<Expr, RloxError> {
         let ops = [BangEqual, EqualEqual];
-        if let Some(token) = self.match_any_and_return(&ops) {
+        if let Ok(token) = self.match_any_and_return(&ops) {
             let expr = self.equality()?;
             return Self::produce_and_report_binary_error(expr, token);
         }
         let mut exp = self.comparison()?;
 
-        while let Some(item) = self.match_any_and_return(&ops) {
+        while let Ok(item) = self.match_any_and_return(&ops) {
             let right = self.comparison()?;
             exp = Binary {
                 left: Box::new(exp),
@@ -146,14 +145,14 @@ impl<'src> Parser<'src> {
 
     fn comparison(&mut self) -> Result<Expr, RloxError> {
         let ops = [Greater, GreaterEqual, Less, LessEqual];
-        if let Some(token) = self.match_any_and_return(&ops) {
+        if let Ok(token) = self.match_any_and_return(&ops) {
             let expr = self.comparison()?;
             return Self::produce_and_report_binary_error(expr, token);
         }
 
         let mut expr = self.term()?;
 
-        while let Some(token) = self.match_any_and_return(&ops) {
+        while let Ok(token) = self.match_any_and_return(&ops) {
             let right = self.term()?;
             expr = Binary {
                 left: Box::new(expr),
@@ -165,13 +164,13 @@ impl<'src> Parser<'src> {
     }
 
     fn term(&mut self) -> Result<Expr, RloxError> {
-        if let Some(token) = self.match_and_return(&Plus) {
+        if let Ok(token) = self.match_and_return(&Plus) {
             let expr = self.term()?;
             return Self::produce_and_report_binary_error(expr, token);
         }
         let mut expr = self.factor()?;
 
-        while let Some(token) = self.match_any_and_return(&[Minus, Plus]) {
+        while let Ok(token) = self.match_any_and_return(&[Minus, Plus]) {
             let right = self.factor()?;
             expr = Binary {
                 left: Box::new(expr),
@@ -185,14 +184,14 @@ impl<'src> Parser<'src> {
     fn factor(&mut self) -> Result<Expr, RloxError> {
         let ops = [Slash, Star];
 
-        if let Some(token) = self.match_any_and_return(&ops) {
+        if let Ok(token) = self.match_any_and_return(&ops) {
             let expr = self.factor()?;
             return Self::produce_and_report_binary_error(expr, token);
         }
 
         let mut expr = self.unary()?;
 
-        while let Some(token) = self.match_any_and_return(&ops) {
+        while let Ok(token) = self.match_any_and_return(&ops) {
             let right = self.unary()?;
             expr = Binary {
                 left: Box::new(expr),
@@ -204,7 +203,7 @@ impl<'src> Parser<'src> {
     }
 
     fn unary(&mut self) -> Result<Expr, RloxError> {
-        if let Some(token) = self.match_any_and_return(&[Bang, Minus]) {
+        if let Ok(token) = self.match_any_and_return(&[Bang, Minus]) {
             let right = self.unary()?;
             return Ok(Unary {
                 op: token,
@@ -231,141 +230,129 @@ impl<'src> Parser<'src> {
                 })
             }
             _ => {
-                self.interpreter
-                    .report_token(&next, "Syntax error! Expected expression");
-                None
+                Self::produce_error_for_expression(next, "Syntax error! Expected expression")
+                // self.interpreter
+                //     .report_token(&next, );
+                // None
             }
         }
     }
 
     fn consume(&mut self, token_type: &TokenType, message: &str) -> Result<Token, RloxError> {
-        let next = self.peek().cloned();
-        if let Some(next) = next {
-            return if next.token_type == *token_type {
-                self.advance()
-            } else {
-                self.interpreter.report_token(&next, message);
-                None
-            };
+        let next = self.peek().cloned()?;
+        if next.token_type == *token_type {
+            self.advance()
+        } else {
+            Self::produce_error_for_token(next, message)
+            // self.interpreter.report_token(&next, message);
+            // None
         }
-        let line = self.scanner.line_index;
-        self.interpreter
-            .error(line, &format!("Reached EOF, expected {token_type:?}"));
-        None
-    }
-    fn peek(&mut self) -> Option<&Token> {
-        if self.current_token.is_none() {
-            self.current_token = self.scanner.scan_token(self.interpreter);
-        }
-        self.current_token.as_ref()
     }
 
-    fn synchronize(&mut self) -> Option<Token> {
-        while let Some(token) = self.scanner.scan_token(self.interpreter) {
+    fn peek(&mut self) -> Result<&Token, RloxError> {
+        if self.current_token.is_none() {
+            let next_token = self.scanner.scan_token()?;
+            self.current_token = Some(next_token);
+        }
+        Ok(self.current_token.as_ref().unwrap())
+    }
+
+    // TODO maybe return just token or EOF
+    fn synchronize(&mut self) -> Result<Token, RloxError> {
+        loop {
+            let token = self.scanner.scan_token()?;
             if token.token_type == Semicolon {
-                if let Some(next) = self.peek() {
-                    match next.token_type {
-                        TokenType::Class
-                        | TokenType::Fun
-                        | TokenType::Var
-                        | TokenType::For
-                        | TokenType::If
-                        | TokenType::While
-                        | TokenType::Print
-                        | TokenType::Return => return self.advance(),
-                        _ => {}
-                    }
-                } else {
-                    return None;
+                let next = self.peek()?;
+                match next.token_type {
+                    TokenType::Class
+                    | TokenType::Fun
+                    | TokenType::Var
+                    | TokenType::For
+                    | TokenType::If
+                    | TokenType::While
+                    | TokenType::Print
+                    | TokenType::Return => return self.advance(),
+                    _ => {}
                 }
+            } else if token.token_type == TokenType::EOF {
+                return self.advance();
             }
         }
-        None
     }
     fn advance(&mut self) -> Result<Token, RloxError> {
         let token = self.current_token.take();
-        if token.is_none() {
-            self.scanner.scan_token(self.interpreter)
+        if let Some(token) = token {
+            Ok(token)
         } else {
-            token
+            self.scanner.scan_token()
         }
     }
 
     fn check(&mut self, token_type: &TokenType) -> bool {
-        if let Some(next) = self.peek() {
+        if let Ok(next) = self.peek() {
             next.token_type == *token_type
         } else {
             false
         }
     }
 
-    fn match_and_return(&mut self, token_type: &TokenType) -> Option<Token> {
-        let token = self.peek()?;
+    fn match_and_return(&mut self, token_type: &TokenType) -> Result<Token, RloxError> {
+        let token = self.peek().cloned()?;
         if token.token_type == *token_type {
             return self.advance();
         }
-        None
+        let msg = format!("Expected token: {token_type:?}, got: {token:?}");
+        Err(RloxError::ParserError(token, msg))
     }
 
     fn match_any(&mut self, token_types: &[TokenType]) -> bool {
-        if let Some(next) = self.peek() {
+        if let Ok(next) = self.peek() {
             token_types.contains(&next.token_type)
         } else {
             false
         }
     }
 
-    fn match_any_and_return(&mut self, token_types: &[TokenType]) -> Option<Token> {
-        if let Some(next) = self.peek()
-            && token_types.contains(&next.token_type)
-        {
+    fn match_any_and_return(&mut self, token_types: &[TokenType]) -> Result<Token, RloxError> {
+        let next = self.peek().cloned()?;
+        if token_types.contains(&next.token_type) {
             return self.advance();
         }
-        None
+        let msg = format!("Expected tokens: {token_types:?}, got: {next:?}");
+        Err(RloxError::ParserError(next, msg))
     }
 }
 
 #[cfg(test)]
 pub(crate) fn parse_one_expression(input: &str) -> Expr {
-    use crate::rlox::interpreter::RLox;
     use crate::rlox::scanner::Scanner;
 
-    let mut interpreter = RLox { had_error: false };
     let scanner = Scanner::new(input.lines());
-    let mut parser = Parser::new(scanner, &mut interpreter);
+    let mut parser = Parser::new(scanner);
     let result = parser.expression();
-    assert!(
-        !interpreter.had_error,
-        "unexpected parse error for {input:?}"
-    );
-    result.unwrap_or_else(|| panic!("expected expression for {input:?}"))
+    assert!(result.is_ok());
+    result.unwrap_or_else(|_| panic!("expected expression for {input:?}"))
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
 
-    pub(crate) fn parse_expression(input: &str) -> (Option<Expr>, RLox) {
-        let mut interpreter = RLox { had_error: false };
+    pub(crate) fn parse_expression(input: &str) -> Result<Expr, RloxError> {
         let scanner = Scanner::new(input.lines());
-        let mut parser = Parser::new(scanner, &mut interpreter);
-        let result = parser.expression();
-        (result, interpreter)
+        let mut parser = Parser::new(scanner);
+        parser.expression()
     }
 
     pub(crate) fn parse_ok(input: &str) -> Expr {
-        let (result, interpreter) = parse_expression(input);
-        assert!(
-            !interpreter.had_error,
-            "unexpected parse error for {input:?}"
-        );
-        result.unwrap_or_else(|| panic!("expected expression for {input:?}"))
+        let result = parse_expression(input);
+        result.unwrap_or_else(|_| panic!("expected expression for {input:?}"))
     }
 
     pub(crate) fn parse_fails(input: &str) {
-        let (result, interpreter) = parse_expression(input);
+        let result = parse_expression(input);
         assert!(
-            interpreter.had_error || result.is_none(),
+            result.is_err(),
             "expected parse failure for {input:?}, got {result:?}"
         );
     }
@@ -430,14 +417,14 @@ pub(crate) mod tests {
         }
     }
 
-    pub(crate) fn parse_with_error(input: &str) -> (Option<Expr>, RLox) {
+    pub(crate) fn parse_with_error(input: &str) -> Result<Expr, RloxError> {
         parse_expression(input)
     }
 
     pub(crate) fn parse_error_recovery(input: &str) -> Expr {
-        let (result, interpreter) = parse_with_error(input);
-        assert!(interpreter.had_error, "expected parse error for {input:?}");
-        result.unwrap_or_else(|| panic!("expected recovered expression for {input:?}"))
+        let result = parse_with_error(input);
+        assert!(result.is_err(), "expected parse error for {input:?}");
+        result.unwrap_or_else(|_| panic!("expected recovered expression for {input:?}"))
     }
 
     pub(crate) fn as_operator(expr: &Expr) -> TokenType {
@@ -1129,11 +1116,10 @@ pub(crate) mod tests {
 
         #[test]
         fn rejects_extra_closing_parenthesis() {
-            let mut interpreter = RLox { had_error: false };
             let scanner = Scanner::new("(1 + 2))".lines());
-            let mut parser = Parser::new(scanner, &mut interpreter);
-            parser.parse();
-            assert!(interpreter.had_error);
+            let mut parser = Parser::new(scanner);
+            let result = parser.expression();
+            assert!(result.is_err());
         }
 
         #[test]
@@ -1432,14 +1418,14 @@ pub(crate) mod tests {
 
             #[test]
             fn sets_had_error_flag() {
-                let (_, interpreter) = parse_with_error("+ 1");
-                assert!(interpreter.had_error);
+                let result = parse_with_error("+ 1");
+                assert!(result.is_err());
             }
 
             #[test]
             fn still_returns_syntax_tree() {
-                let (result, _) = parse_with_error("+ 1");
-                assert!(result.is_some());
+                let result = parse_with_error("+ 1");
+                assert!(result.is_err());
             }
 
             #[test]

@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::fmt::{Display, Formatter, write};
+use std::fmt::{Display, Formatter};
 use std::sync::LazyLock;
 
 #[derive(Debug, Clone, PartialEq)]

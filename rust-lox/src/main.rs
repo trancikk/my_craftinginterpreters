@@ -11,7 +11,7 @@ fn main() {
             println!("Usage: rlo [script]");
             process::exit(64);
         }
-        v if v == 2 => interpreter.run_file(&env::args().skip(1).next().unwrap()),
+        v if v == 2 => interpreter.run_file(&env::args().nth(1).unwrap()),
         _ => interpreter.run_prompt(),
     };
     result.unwrap();

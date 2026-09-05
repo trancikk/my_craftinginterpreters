@@ -1,6 +1,6 @@
+use crate::rlox::interpreter::RloxError;
 use crate::rlox::interpreter::RloxError::ScannerError;
-use crate::rlox::interpreter::{RLox, RloxError};
-use crate::rlox::token::{RESERVED_KEYWORDS, Token, TokenType};
+use crate::rlox::token::{Token, TokenType, RESERVED_KEYWORDS};
 use std::str::Lines;
 
 const EOF: &str = "EOF";
@@ -402,7 +402,11 @@ impl<'a> Scanner<'a> {
     pub fn collect_tokens(&mut self) -> Vec<Token> {
         let mut v = vec![];
         while let Ok(token) = self.scan_token() {
-            v.push(token);
+            if token.token_type == TokenType::EOF {
+                v.push(token);
+                break;
+            }
+            v.push(token)
         }
         v
     }
@@ -415,7 +419,7 @@ mod tests {
         And, Bang, BangEqual, Class, Colon, Comma, Dot, Else, Equal, EqualEqual, False,
         FloatNumber, For, Fun, Greater, GreaterEqual, Identifier, If, LeftBrace, LeftParen, Less,
         LessEqual, Minus, Nil, Number, Or, Plus, Print, Question, Return, RightBrace, RightParen,
-        Semicolon, Slash, Star, StringToken, Super, This, True, Var, While,
+        Semicolon, Slash, Star, StringToken, Super, This, True, Var, While, EOF,
     };
 
     fn scan(input: &str) -> Vec<Token> {
@@ -424,17 +428,15 @@ mod tests {
     }
 
     fn scan_ok(input: &str) -> Vec<Token> {
-        let (tokens, interpreter) = scan(input);
-        assert!(
-            !interpreter.had_error,
-            "unexpected scan error for {input:?}"
-        );
-        tokens
+        scan(input)
     }
 
     fn scan_fails(input: &str) {
-        let (_, interpreter) = scan(input);
-        assert!(interpreter.had_error, "expected scan error for {input:?}");
+        let mut scanner = Scanner::new(input.lines());
+        assert!(
+            scanner.scan_token().is_err(),
+            "expected scan error for {input:?}"
+        );
     }
 
     fn types(tokens: &[Token]) -> Vec<TokenType> {
@@ -443,8 +445,9 @@ mod tests {
 
     fn assert_single(input: &str, expected: TokenType) {
         let tokens = scan_ok(input);
-        assert_eq!(tokens.len(), 1, "input: {input:?}");
+        assert_eq!(tokens.len(), 2, "input: {input:?}");
         assert_eq!(tokens[0].token_type, expected);
+        assert_eq!(tokens[1].token_type, EOF);
     }
 
     fn assert_lexeme(input: &str, index: usize, expected: &str) {
@@ -475,7 +478,7 @@ mod tests {
                 types(&tokens),
                 vec![
                     LeftParen, RightParen, LeftBrace, RightBrace, Comma, Dot, Semicolon, Question,
-                    Colon,
+                    Colon, EOF,
                 ]
             );
         }
@@ -483,7 +486,7 @@ mod tests {
         #[test]
         fn scans_arithmetic_operators() {
             let tokens = scan_ok("+ - * /");
-            assert_eq!(types(&tokens), vec![Plus, Minus, Star, Slash]);
+            assert_eq!(types(&tokens), vec![Plus, Minus, Star, Slash, EOF]);
         }
     }
 
@@ -515,7 +518,7 @@ mod tests {
         #[test]
         fn scans_single_char_when_not_doubled() {
             let tokens = scan_ok("! = < >");
-            assert_eq!(types(&tokens), vec![Bang, Equal, Less, Greater]);
+            assert_eq!(types(&tokens), vec![Bang, Equal, Less, Greater, EOF]);
         }
     }
 
@@ -562,7 +565,10 @@ mod tests {
         #[test]
         fn integer_followed_by_comma_stops_at_comma() {
             let tokens = scan_ok("589565,22");
-            assert_eq!(types(&tokens), vec![Number(589_565), Comma, Number(22)]);
+            assert_eq!(
+                types(&tokens),
+                vec![Number(589_565), Comma, Number(22), EOF]
+            );
         }
     }
 
@@ -578,7 +584,7 @@ mod tests {
                 types(&tokens),
                 vec![
                     And, Class, Else, False, For, Fun, If, Nil, Or, Print, Return, Super, This,
-                    True, Var, While,
+                    True, Var, While, EOF,
                 ]
             );
         }
@@ -597,7 +603,7 @@ mod tests {
             let tokens = scan_ok("my ident");
             assert_eq!(
                 types(&tokens),
-                vec![Identifier("my".into()), Identifier("ident".into())]
+                vec![Identifier("my".into()), Identifier("ident".into()), EOF]
             );
         }
 
@@ -623,18 +629,19 @@ mod tests {
         #[test]
         fn skips_spaces_tabs_and_carriage_returns() {
             let tokens = scan_ok("  \t\r +");
-            assert_eq!(types(&tokens), vec![Plus]);
+            assert_eq!(types(&tokens), vec![Plus, EOF]);
         }
 
         #[test]
         fn skips_blank_lines() {
             let tokens = scan_ok("\n\n1\n");
-            assert_eq!(types(&tokens), vec![Number(1)]);
+            assert_eq!(types(&tokens), vec![Number(1), EOF]);
         }
 
         #[test]
-        fn empty_input_produces_no_tokens() {
-            assert!(scan_ok("").is_empty());
+        fn empty_input_produces_only_eof() {
+            let tokens = scan_ok("");
+            assert_eq!(types(&tokens), vec![EOF]);
         }
     }
 
@@ -646,13 +653,14 @@ mod tests {
             let tokens = scan_ok("foo // comment\nbar");
             assert_eq!(
                 types(&tokens),
-                vec![Identifier("foo".into()), Identifier("bar".into())]
+                vec![Identifier("foo".into()), Identifier("bar".into()), EOF]
             );
         }
 
         #[test]
-        fn line_comment_only_line_produces_no_tokens() {
-            assert!(scan_ok("// just a comment").is_empty());
+        fn line_comment_only_line_produces_only_eof() {
+            let tokens = scan_ok("// just a comment");
+            assert_eq!(types(&tokens), vec![EOF]);
         }
 
         #[test]
@@ -664,6 +672,7 @@ mod tests {
                     Identifier("my".into()),
                     Identifier("code".into()),
                     Identifier("identifier".into()),
+                    EOF,
                 ]
             );
         }
@@ -673,7 +682,7 @@ mod tests {
             let tokens = scan_ok("a /* comment */ b");
             assert_eq!(
                 types(&tokens),
-                vec![Identifier("a".into()), Identifier("b".into())]
+                vec![Identifier("a".into()), Identifier("b".into()), EOF]
             );
         }
 
@@ -682,7 +691,7 @@ mod tests {
             let tokens = scan_ok("a /* * not end */ b");
             assert_eq!(
                 types(&tokens),
-                vec![Identifier("a".into()), Identifier("b".into())]
+                vec![Identifier("a".into()), Identifier("b".into()), EOF]
             );
         }
 
@@ -691,14 +700,14 @@ mod tests {
             let tokens = scan_ok("a /* foo / bar */ b");
             assert_eq!(
                 types(&tokens),
-                vec![Identifier("a".into()), Identifier("b".into())]
+                vec![Identifier("a".into()), Identifier("b".into()), EOF]
             );
         }
 
         #[test]
         fn tokens_after_block_comment_on_same_line() {
             let tokens = scan_ok("1 /* comment */ + 2");
-            assert_eq!(types(&tokens), vec![Number(1), Plus, Number(2)]);
+            assert_eq!(types(&tokens), vec![Number(1), Plus, Number(2), EOF]);
         }
 
         #[test]
@@ -706,7 +715,7 @@ mod tests {
             let tokens = scan_ok("a /**/ b");
             assert_eq!(
                 types(&tokens),
-                vec![Identifier("a".into()), Identifier("b".into())]
+                vec![Identifier("a".into()), Identifier("b".into()), EOF]
             );
         }
     }
@@ -729,6 +738,7 @@ mod tests {
                     Number(3),
                     EqualEqual,
                     Number(4),
+                    EOF,
                 ]
             );
         }
@@ -748,6 +758,7 @@ mod tests {
                     Number(4),
                     EqualEqual,
                     Number(5),
+                    EOF,
                 ]
             );
         }
@@ -765,6 +776,7 @@ mod tests {
                     Number(1),
                     Semicolon,
                     RightBrace,
+                    EOF,
                 ]
             );
         }
