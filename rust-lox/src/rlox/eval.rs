@@ -116,7 +116,6 @@ mod tests {
     use super::*;
     use crate::rlox::parser::tests::parse_ok;
     use crate::rlox::parser::{
-        self,
         Expr::{Binary, Operator, SyntaxLiteral, Ternary, Unary},
         Literal,
     };

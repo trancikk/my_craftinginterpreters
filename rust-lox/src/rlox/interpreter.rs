@@ -72,18 +72,16 @@ impl RLox {
                 }
             }
         }
-        {}
-        // let _: Vec<Token> = scanner.collect(self);
     }
 
-    pub fn error(&mut self, line: u64, message: &str) {
-        self.had_error = true;
-        self.report(line, "", message);
-    }
+    // pub fn error(&mut self, line: u64, message: &str) {
+    //     self.had_error = true;
+    //     self.report(line, "", message);
+    // }
 
-    pub fn report(&self, line: u64, where_location: &str, message: &str) {
-        eprintln!("[line {line}] Error {where_location}: {message}");
-    }
+    // pub fn report(&self, line: u64, where_location: &str, message: &str) {
+    //     eprintln!("[line {line}] Error {where_location}: {message}");
+    // }
 
     pub fn report_token(&mut self, token: &Token, msg: &str) {
         self.had_error = true;
@@ -113,7 +111,7 @@ mod tests {
     #[test]
     fn it_works() {
         let mut rlox = RLox { had_error: false };
-        let result = rlox.run("1+2");
+        rlox.run("1+2");
         assert!(!rlox.had_error);
     }
 }

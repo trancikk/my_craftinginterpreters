@@ -169,16 +169,16 @@ impl<'a> Scanner<'a> {
         }
     }
 
-    fn conditional_advance_vec(&mut self, chars: &[char]) -> Option<char> {
-        let next_char = self.peek()?;
-        for ch in chars {
-            if next_char == *ch {
-                self.current_position += next_char.len_utf8();
-                return Some(next_char);
-            }
-        }
-        None
-    }
+    // fn conditional_advance_vec(&mut self, chars: &[char]) -> Option<char> {
+    //     let next_char = self.peek()?;
+    //     for ch in chars {
+    //         if next_char == *ch {
+    //             self.current_position += next_char.len_utf8();
+    //             return Some(next_char);
+    //         }
+    //     }
+    //     None
+    // }
 
     fn emit_eof(&self) -> Result<Token, RloxError> {
         Ok(Token::new(TokenType::EOF, EOF.to_string(), self.line_index))

@@ -2,7 +2,7 @@ use crate::rlox::interpreter::RloxError;
 use crate::rlox::parser::Expr::{Binary, Grouping, Ternary, Unary};
 use crate::rlox::scanner::Scanner;
 use crate::rlox::token::TokenType::{
-    Bang, BangEqual, Colon, Comma, EqualEqual, False, FloatNumber, Greater, GreaterEqual,
+    Bang, BangEqual, Colon, Comma, EOF, EqualEqual, False, FloatNumber, Greater, GreaterEqual,
     LeftParen, Less, LessEqual, Minus, Nil, Number, Plus, Question, RightParen, Semicolon, Slash,
     Star, StringToken, True,
 };
@@ -89,21 +89,37 @@ impl<'src> Parser<'src> {
         Err(Self::report_binary_operation_error(token))
     }
 
+    fn loop_inside_same_level(
+        &mut self,
+        ops: &[TokenType],
+        next_level: fn(&mut Self) -> Result<Expr, RloxError>,
+    ) -> Result<Expr, RloxError> {
+        let mut expr = next_level(self)?;
+        loop {
+            let token = self.peek()?;
+            if token.token_type == EOF {
+                break;
+            } else if ops.contains(&token.token_type) {
+                let token = self.advance()?;
+                let right = next_level(self)?;
+                expr = Binary {
+                    left: Box::new(expr),
+                    op: token,
+                    right: Box::new(right),
+                }
+            } else {
+                break;
+            }
+        }
+        Ok(expr)
+    }
+
     pub fn expression(&mut self) -> Result<Expr, RloxError> {
         if let Ok(token) = self.match_and_return(&Comma) {
             let expr = self.expression()?;
             return Self::produce_and_report_binary_error(expr, token);
         }
-        let mut exp = self.ternary()?;
-        while let Ok(coma) = self.match_and_return(&Comma) {
-            let right = self.ternary()?;
-            exp = Binary {
-                left: Box::new(exp),
-                op: coma,
-                right: Box::new(right),
-            }
-        }
-        Ok(exp)
+        self.loop_inside_same_level(&[Comma], Self::ternary)
     }
 
     fn ternary(&mut self) -> Result<Expr, RloxError> {
@@ -130,17 +146,7 @@ impl<'src> Parser<'src> {
             let expr = self.equality()?;
             return Self::produce_and_report_binary_error(expr, token);
         }
-        let mut exp = self.comparison()?;
-
-        while let Ok(item) = self.match_any_and_return(&ops) {
-            let right = self.comparison()?;
-            exp = Binary {
-                left: Box::new(exp),
-                op: item,
-                right: Box::new(right),
-            }
-        }
-        Ok(exp)
+        self.loop_inside_same_level(&ops, Self::comparison)
     }
 
     fn comparison(&mut self) -> Result<Expr, RloxError> {
@@ -150,17 +156,7 @@ impl<'src> Parser<'src> {
             return Self::produce_and_report_binary_error(expr, token);
         }
 
-        let mut expr = self.term()?;
-
-        while let Ok(token) = self.match_any_and_return(&ops) {
-            let right = self.term()?;
-            expr = Binary {
-                left: Box::new(expr),
-                op: token,
-                right: Box::new(right),
-            }
-        }
-        Ok(expr)
+        self.loop_inside_same_level(&ops, Self::term)
     }
 
     fn term(&mut self) -> Result<Expr, RloxError> {
@@ -168,17 +164,8 @@ impl<'src> Parser<'src> {
             let expr = self.term()?;
             return Self::produce_and_report_binary_error(expr, token);
         }
-        let mut expr = self.factor()?;
 
-        while let Ok(token) = self.match_any_and_return(&[Minus, Plus]) {
-            let right = self.factor()?;
-            expr = Binary {
-                left: Box::new(expr),
-                op: token,
-                right: Box::new(right),
-            }
-        }
-        Ok(expr)
+        self.loop_inside_same_level(&[Minus, Plus], Self::factor)
     }
 
     fn factor(&mut self) -> Result<Expr, RloxError> {
@@ -189,17 +176,7 @@ impl<'src> Parser<'src> {
             return Self::produce_and_report_binary_error(expr, token);
         }
 
-        let mut expr = self.unary()?;
-
-        while let Ok(token) = self.match_any_and_return(&ops) {
-            let right = self.unary()?;
-            expr = Binary {
-                left: Box::new(expr),
-                op: token,
-                right: Box::new(right),
-            }
-        }
-        Ok(expr)
+        self.loop_inside_same_level(&ops, Self::unary)
     }
 
     fn unary(&mut self) -> Result<Expr, RloxError> {
@@ -244,8 +221,6 @@ impl<'src> Parser<'src> {
             self.advance()
         } else {
             Self::produce_error_for_token(next, message)
-            // self.interpreter.report_token(&next, message);
-            // None
         }
     }
 
@@ -324,19 +299,19 @@ impl<'src> Parser<'src> {
 }
 
 #[cfg(test)]
-pub(crate) fn parse_one_expression(input: &str) -> Expr {
-    use crate::rlox::scanner::Scanner;
-
-    let scanner = Scanner::new(input.lines());
-    let mut parser = Parser::new(scanner);
-    let result = parser.expression();
-    assert!(result.is_ok());
-    result.unwrap_or_else(|_| panic!("expected expression for {input:?}"))
-}
-
-#[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    #[cfg(test)]
+    pub(crate) fn parse_one_expression(input: &str) -> Expr {
+        use crate::rlox::scanner::Scanner;
+
+        let scanner = Scanner::new(input.lines());
+        let mut parser = Parser::new(scanner);
+        let result = parser.expression();
+        assert!(result.is_ok());
+        result.unwrap_or_else(|_| panic!("expected expression for {input:?}"))
+    }
 
     pub(crate) fn parse_expression(input: &str) -> Result<Expr, RloxError> {
         let scanner = Scanner::new(input.lines());
@@ -423,6 +398,7 @@ pub(crate) mod tests {
 
     pub(crate) fn parse_error_recovery(input: &str) -> Expr {
         let result = parse_with_error(input);
+        println!("{result:?}");
         assert!(result.is_err(), "expected parse error for {input:?}");
         result.unwrap_or_else(|_| panic!("expected recovered expression for {input:?}"))
     }
