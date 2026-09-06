@@ -92,14 +92,15 @@ impl RLox {
         let result = eval_expr(expr);
         match result {
             Ok(value) => println!("{:?}", value),
-            Err(e) => match e {
-                RuntimeError::IncorrectType(_, token) => {
-                    self.report_token(&token, "Error during expression evaluation");
-                }
-                RuntimeError::IncorrectOperator(token) => {
-                    self.report_token(&token, "Error during expression evaluation")
-                }
-            },
+            Err(e) => {
+                let e_msg = e.to_string();
+                let token = match e {
+                    RuntimeError::IncorrectType(_, token) => token,
+                    RuntimeError::IncorrectOperator(token) => token,
+                    RuntimeError::EvaluationError(_, token) => token,
+                };
+                self.report_token(&token, &e_msg);
+            }
         }
     }
 }

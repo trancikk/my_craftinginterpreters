@@ -1,5 +1,5 @@
 use crate::rlox::interpreter::RloxError;
-use crate::rlox::parser::Expr::{Binary, Grouping, Operator, Ternary, Unary};
+use crate::rlox::parser::Expr::{Binary, Grouping, MissingLeftOperand, Ternary, Unary};
 use crate::rlox::scanner::Scanner;
 use crate::rlox::token::TokenType::{
     Bang, BangEqual, Colon, Comma, EOF, EqualEqual, False, FloatNumber, Greater, GreaterEqual,
@@ -38,7 +38,7 @@ pub enum Expr {
     Grouping {
         expr: Box<Expr>,
     },
-    Operator {
+    MissingLeftOperand {
         token: Token,
     },
 }
@@ -75,7 +75,7 @@ impl<'src> Parser<'src> {
 
     fn produce_and_report_binary_error(expr: Expr, token: Token) -> Result<Expr, RloxError> {
         Ok(Binary {
-            left: Box::new(Operator {
+            left: Box::new(MissingLeftOperand {
                 token: token.clone(),
             }),
             op: token,
@@ -403,7 +403,7 @@ pub(crate) mod tests {
 
     pub(crate) fn as_operator(expr: &Expr) -> TokenType {
         match expr {
-            Expr::Operator { token } => token.token_type.clone(),
+            Expr::MissingLeftOperand { token } => token.token_type.clone(),
             other => panic!("expected operator placeholder, got {other:?}"),
         }
     }

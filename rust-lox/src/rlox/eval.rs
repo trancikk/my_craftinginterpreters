@@ -34,6 +34,8 @@ pub enum RuntimeError {
     IncorrectType(Value, Token),
     #[error("Incorrect operator `{0:?}`!")]
     IncorrectOperator(Token),
+    #[error("{0:?}")]
+    EvaluationError(String, Token),
 }
 
 fn is_truthy(value: &Value) -> bool {
@@ -88,8 +90,17 @@ pub fn eval_expr(exp: Expr) -> Result<Value, RuntimeError> {
                 Err(IncorrectType(left_value, op))
             }
         }
-        Expr::Ternary { .. } => {
-            todo!()
+        Expr::Ternary {
+            predicate,
+            left,
+            right,
+        } => {
+            let predicate_result = eval_expr(*predicate)?;
+            if is_truthy(&predicate_result) {
+                eval_expr(*left)
+            } else {
+                eval_expr(*right)
+            }
         }
         Expr::Unary { op, right } => {
             let right_value = eval_expr(*right)?;
@@ -105,8 +116,9 @@ pub fn eval_expr(exp: Expr) -> Result<Value, RuntimeError> {
             }
         }
         Expr::Grouping { expr } => eval_expr(*expr),
-        Expr::Operator { .. } => {
-            todo!()
+        Expr::MissingLeftOperand { token } => {
+            let msg = format!("Missing left operand for token {token}");
+            Err(RuntimeError::EvaluationError(msg, token))
         }
     }
 }
@@ -116,7 +128,7 @@ mod tests {
     use super::*;
     use crate::rlox::parser::tests::parse_ok;
     use crate::rlox::parser::{
-        Expr::{Binary, Operator, SyntaxLiteral, Ternary, Unary},
+        Expr::{Binary, MissingLeftOperand, SyntaxLiteral, Ternary, Unary},
         Literal,
     };
     use crate::rlox::token::TokenType::{
@@ -619,14 +631,13 @@ mod tests {
         use super::*;
 
         #[test]
-        #[should_panic]
         fn ternary_expression() {
             let expr = Ternary {
                 predicate: Box::new(SyntaxLiteral(Literal::True)),
                 left: Box::new(lit_number(1)),
                 right: Box::new(lit_number(2)),
             };
-            let _ = eval_expr(expr);
+            assert_eq!(eval_expr_ok(expr), Value::Number(1.0));
         }
     }
 
@@ -771,33 +782,33 @@ mod tests {
             use super::*;
 
             #[test]
-            #[should_panic(expected = "not yet implemented")]
             fn bare_plus_operator() {
-                let expr = Operator { token: token(Plus) };
-                let _ = eval_expr(expr);
+                let expr = MissingLeftOperand { token: token(Plus) };
+                let err = eval_expr(expr).unwrap_err();
+                assert!(matches!(err, RuntimeError::EvaluationError(_, _)));
             }
 
             #[test]
-            #[should_panic(expected = "not yet implemented")]
             fn bare_minus_operator() {
-                let expr = Operator {
+                let expr = MissingLeftOperand {
                     token: token(Minus),
                 };
-                let _ = eval_expr(expr);
+                let err = eval_expr(expr).unwrap_err();
+                assert!(matches!(err, RuntimeError::EvaluationError(_, _)));
             }
 
             #[test]
-            #[should_panic(expected = "not yet implemented")]
             fn bare_bang_operator() {
-                let expr = Operator { token: token(Bang) };
-                let _ = eval_expr(expr);
+                let expr = MissingLeftOperand { token: token(Bang) };
+                let err = eval_expr(expr).unwrap_err();
+                assert!(matches!(err, RuntimeError::EvaluationError(_, _)));
             }
 
             #[test]
-            #[should_panic(expected = "not yet implemented")]
             fn bare_star_operator() {
-                let expr = Operator { token: token(Star) };
-                let _ = eval_expr(expr);
+                let expr = MissingLeftOperand { token: token(Star) };
+                let err = eval_expr(expr).unwrap_err();
+                assert!(matches!(err, RuntimeError::EvaluationError(_, _)));
             }
         }
 
@@ -825,10 +836,13 @@ mod tests {
             }
 
             #[test]
-            #[should_panic(expected = "not yet implemented")]
             fn operator_placeholder_error_message() {
-                let expr = Operator { token: token(Star) };
-                let _err = eval_expr(expr).unwrap_err();
+                let expr = MissingLeftOperand { token: token(Star) };
+                let err = eval_expr(expr).unwrap_err();
+                assert_eq!(
+                    err.to_string(),
+                    "\"Missing left operand for token Star \\\"\\\"\""
+                );
             }
         }
     }
