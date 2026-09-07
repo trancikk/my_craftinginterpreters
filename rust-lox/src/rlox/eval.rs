@@ -3,6 +3,7 @@ use crate::rlox::parser::{
     Expr,
     Literal::{False, FloatNumber, Nil, Number, StringL, True},
 };
+use crate::rlox::token::TokenType::Plus;
 use crate::rlox::token::{Token, TokenType};
 use std::fmt::{Display, Formatter};
 use std::ops::Neg;
@@ -69,21 +70,28 @@ pub fn eval_expr(exp: Expr) -> Result<Value, RuntimeError> {
                 && let Value::Number(right) = right_value
             {
                 match &op.token_type {
-                    TokenType::Plus => Ok(Value::Number(left + right)),
+                    Plus => Ok(Value::Number(left + right)),
                     TokenType::Minus => Ok(Value::Number(left - right)),
                     TokenType::Star => Ok(Value::Number(left * right)),
-                    TokenType::Slash => Ok(Value::Number(left / right)),
+                    TokenType::Slash => {
+                        if right == 0f64 {
+                            return Err(RuntimeError::EvaluationError(
+                                String::from("Division by Zero!"),
+                                op,
+                            ));
+                        }
+                        Ok(Value::Number(left / right))
+                    }
                     TokenType::Greater => Ok(Value::Boolean(left > right)),
                     TokenType::GreaterEqual => Ok(Value::Boolean(left >= right)),
                     TokenType::Less => Ok(Value::Boolean(left < right)),
                     TokenType::LessEqual => Ok(Value::Boolean(left <= right)),
                     _other => Err(IncorrectOperator(op)),
                 }
-            } else if let Value::Str(ref left) = left_value
-                && let Value::Str(right) = right_value
+            } else if matches!(&left_value, Value::Str(_)) || matches!(&right_value, Value::Str(_))
             {
                 match &op.token_type {
-                    TokenType::Plus => Ok(Value::Str(format!("{left}{right}"))),
+                    Plus => Ok(Value::Str(format!("{left_value}{right_value}"))),
                     _other => Err(IncorrectOperator(op)),
                 }
             } else {

@@ -206,6 +206,7 @@ impl<'src> Parser<'src> {
                     expr: Box::new(expr),
                 })
             }
+            EOF => Err(RloxError::EOF),
             _ => {
                 Self::produce_error_for_expression(next, "Syntax error! Expected expression")
                 // self.interpreter

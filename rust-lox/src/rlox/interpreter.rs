@@ -19,6 +19,8 @@ pub enum RloxError {
     ParserError(Token, String),
     #[error("Unexpected Symbols `{1:?}` on line: `{0:?}`!")]
     ScannerError(u64, char, String),
+    #[error("Got EOF")]
+    EOF,
 }
 
 impl RLox {
@@ -64,8 +66,16 @@ impl RLox {
         loop {
             let expr = parser.expression();
             match expr {
-                Err(_) => {
-                    return;
+                Err(e) => {
+                    let msg = e.to_string();
+                    match e {
+                        RloxError::EOF => break,
+                        _ => eprintln!("{msg}"),
+                    }
+                    // match e {
+                    //
+                    // }
+                    eprintln!("{e}");
                 }
                 Ok(expr) => {
                     self.interpret(expr);
@@ -91,7 +101,7 @@ impl RLox {
     pub fn interpret(&mut self, expr: Expr) {
         let result = eval_expr(expr);
         match result {
-            Ok(value) => println!("{:?}", value),
+            Ok(value) => println!("{value:?}"),
             Err(e) => {
                 let e_msg = e.to_string();
                 let token = match e {

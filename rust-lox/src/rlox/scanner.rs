@@ -1,6 +1,6 @@
 use crate::rlox::interpreter::RloxError;
 use crate::rlox::interpreter::RloxError::ScannerError;
-use crate::rlox::token::{Token, TokenType, RESERVED_KEYWORDS};
+use crate::rlox::token::{RESERVED_KEYWORDS, Token, TokenType};
 use std::str::Lines;
 
 const EOF: &str = "EOF";
@@ -180,7 +180,8 @@ impl<'a> Scanner<'a> {
     //     None
     // }
 
-    fn emit_eof(&self) -> Result<Token, RloxError> {
+    fn emit_eof(&mut self) -> Result<Token, RloxError> {
+        self.advance();
         Ok(Token::new(TokenType::EOF, EOF.to_string(), self.line_index))
     }
 
@@ -309,7 +310,7 @@ impl<'a> Scanner<'a> {
                         };
                     }
                     '/' => {
-                        let next_char = self.advance_in_line();
+                        let next_char = self.peek();
                         match next_char {
                             Some('/') => {
                                 if self.next_line().is_none() {
@@ -317,6 +318,7 @@ impl<'a> Scanner<'a> {
                                 }
                             }
                             Some('*') => loop {
+                                self.advance();
                                 self.advance_until_char('*');
                                 if let Some(next_token) = self.advance() {
                                     if next_token == '/' {
@@ -394,9 +396,10 @@ impl<'a> Scanner<'a> {
                     }
                 }
             } else {
-                return self.emit_eof();
+                break;
             }
         }
+        self.emit_eof()
     }
 
     pub fn collect_tokens(&mut self) -> Vec<Token> {
@@ -416,10 +419,10 @@ impl<'a> Scanner<'a> {
 mod tests {
     use super::*;
     use crate::rlox::token::TokenType::{
-        And, Bang, BangEqual, Class, Colon, Comma, Dot, Else, Equal, EqualEqual, False,
+        And, Bang, BangEqual, Class, Colon, Comma, Dot, EOF, Else, Equal, EqualEqual, False,
         FloatNumber, For, Fun, Greater, GreaterEqual, Identifier, If, LeftBrace, LeftParen, Less,
         LessEqual, Minus, Nil, Number, Or, Plus, Print, Question, Return, RightBrace, RightParen,
-        Semicolon, Slash, Star, StringToken, Super, This, True, Var, While, EOF,
+        Semicolon, Slash, Star, StringToken, Super, This, True, Var, While,
     };
 
     fn scan(input: &str) -> Vec<Token> {
