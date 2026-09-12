@@ -136,8 +136,8 @@ impl<'a> Scanner<'a> {
         buf
     }
 
-    fn step_back(&mut self) {
-        self.current_position -= 1;
+    fn step_back(&mut self, ch: char) {
+        self.current_position -= ch.len_utf8();
     }
 
     fn advance_chars_until_whitespace(&mut self) -> Vec<char> {
@@ -359,7 +359,7 @@ impl<'a> Scanner<'a> {
                         };
                     }
                     digit if digit.is_numeric() => {
-                        self.step_back();
+                        self.step_back(digit);
                         let digits = self.advance_chars_until_fn(|x| !x.is_numeric() && x != '.');
                         let digits: String = String::from_iter(digits);
                         if let Ok(number) = digits.parse::<u64>() {
@@ -378,17 +378,13 @@ impl<'a> Scanner<'a> {
                         return self.produce_error(digit, format!("Incorrect number! {digits:?}"));
                     }
                     alpha if alpha.is_alphabetic() => {
-                        self.step_back();
+                        self.step_back(alpha);
                         let identifier = self.advance_chars_until_whitespace();
                         let value: String = identifier.iter().collect();
                         return if let Some(keyword) = RESERVED_KEYWORDS.get(&value).cloned() {
                             Ok(Token::new(keyword, value, self.line_index))
                         } else {
-                            Ok(Token::new(
-                                TokenType::Identifier(value.clone()),
-                                value,
-                                self.line_index,
-                            ))
+                            Ok(Token::new(TokenType::Identifier, value, self.line_index))
                         };
                     }
                     other => {
@@ -604,20 +600,17 @@ mod tests {
         #[test]
         fn scans_simple_identifiers() {
             let tokens = scan_ok("my ident");
-            assert_eq!(
-                types(&tokens),
-                vec![Identifier("my".into()), Identifier("ident".into()), EOF]
-            );
+            assert_eq!(types(&tokens), vec![Identifier, Identifier, EOF]);
         }
 
         #[test]
         fn scans_identifier_with_digits() {
-            assert_single("foo123", Identifier("foo123".into()));
+            assert_single("foo123", Identifier);
         }
 
         #[test]
         fn scans_identifier_with_underscore() {
-            assert_single("my_var", Identifier("my_var".into()));
+            assert_single("my_var", Identifier);
         }
 
         #[test]
@@ -654,10 +647,7 @@ mod tests {
         #[test]
         fn skips_line_comment_to_end_of_line() {
             let tokens = scan_ok("foo // comment\nbar");
-            assert_eq!(
-                types(&tokens),
-                vec![Identifier("foo".into()), Identifier("bar".into()), EOF]
-            );
+            assert_eq!(types(&tokens), vec![Identifier, Identifier, EOF]);
         }
 
         #[test]
@@ -671,40 +661,26 @@ mod tests {
             let tokens = scan_ok("my code /* this is the code\nanother code *\nend */ identifier");
             assert_eq!(
                 types(&tokens),
-                vec![
-                    Identifier("my".into()),
-                    Identifier("code".into()),
-                    Identifier("identifier".into()),
-                    EOF,
-                ]
+                vec![Identifier, Identifier, Identifier, EOF]
             );
         }
 
         #[test]
         fn inline_block_comment_between_tokens() {
             let tokens = scan_ok("a /* comment */ b");
-            assert_eq!(
-                types(&tokens),
-                vec![Identifier("a".into()), Identifier("b".into()), EOF]
-            );
+            assert_eq!(types(&tokens), vec![Identifier, Identifier, EOF]);
         }
 
         #[test]
         fn star_inside_block_comment_does_not_close_comment() {
             let tokens = scan_ok("a /* * not end */ b");
-            assert_eq!(
-                types(&tokens),
-                vec![Identifier("a".into()), Identifier("b".into()), EOF]
-            );
+            assert_eq!(types(&tokens), vec![Identifier, Identifier, EOF]);
         }
 
         #[test]
         fn slash_inside_block_comment_does_not_close_comment() {
             let tokens = scan_ok("a /* foo / bar */ b");
-            assert_eq!(
-                types(&tokens),
-                vec![Identifier("a".into()), Identifier("b".into()), EOF]
-            );
+            assert_eq!(types(&tokens), vec![Identifier, Identifier, EOF]);
         }
 
         #[test]
@@ -716,10 +692,7 @@ mod tests {
         #[test]
         fn empty_block_comment() {
             let tokens = scan_ok("a /**/ b");
-            assert_eq!(
-                types(&tokens),
-                vec![Identifier("a".into()), Identifier("b".into()), EOF]
-            );
+            assert_eq!(types(&tokens), vec![Identifier, Identifier, EOF]);
         }
     }
 
@@ -774,7 +747,7 @@ mod tests {
                 vec![
                     LeftBrace,
                     Var,
-                    Identifier("x".into()),
+                    Identifier,
                     Equal,
                     Number(1),
                     Semicolon,

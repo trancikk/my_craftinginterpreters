@@ -2,6 +2,7 @@ use crate::rlox::eval::RuntimeError::{IncorrectOperator, IncorrectType};
 use crate::rlox::parser::{
     Expr,
     Literal::{False, FloatNumber, Nil, Number, StringL, True},
+    Statement,
 };
 use crate::rlox::token::TokenType::Plus;
 use crate::rlox::token::{Token, TokenType};
@@ -45,6 +46,22 @@ fn is_truthy(value: &Value) -> bool {
 
 fn is_equal(value1: &Value, value2: &Value) -> bool {
     value1 == value2
+}
+
+pub fn eval_statement(statement: Statement) -> Result<(), RuntimeError> {
+    match statement {
+        Statement::DeclarationStatement(_name, _expr) => {
+
+        },
+        Statement::ExprStatement(expr) => {
+            eval_expr(expr);
+        },
+        Statement::Print(expr) => {
+            let value = eval_expr(expr)?;
+            println!("{value}");
+        }
+    };
+    Ok(())
 }
 
 pub fn eval_expr(exp: Expr) -> Result<Value, RuntimeError> {
@@ -361,21 +378,15 @@ mod tests {
         }
 
         #[test]
-        fn division_by_zero_produces_infinity() {
-            let result = eval_ok("1 / 0");
-            match result {
-                Value::Number(n) => assert!(n.is_infinite() && n.is_sign_positive()),
-                other => panic!("expected positive infinity, got {other:?}"),
-            }
+        fn division_by_zero_returns_error() {
+            let err = eval_parse("1 / 0").unwrap_err();
+            assert_eq!(err.to_string(), "\"Division by Zero!\"");
         }
 
         #[test]
-        fn zero_divided_by_zero_produces_nan() {
-            let result = eval_ok("0 / 0");
-            match result {
-                Value::Number(n) => assert!(n.is_nan()),
-                other => panic!("expected NaN, got {other:?}"),
-            }
+        fn zero_divided_by_zero_returns_error() {
+            let err = eval_parse("0 / 0").unwrap_err();
+            assert_eq!(err.to_string(), "\"Division by Zero!\"");
         }
     }
 
@@ -862,74 +873,74 @@ mod tests {
             use super::*;
 
             #[test]
-            fn number_plus_string() {
-                assert_incorrect_type_for("1 + \"two\"", "number");
+            fn number_plus_string_converts_to_string() {
+                assert_str(eval_ok("1 + \"two\""), "1two");
             }
 
             #[test]
-            fn string_plus_number() {
-                assert_incorrect_type_for("\"one\" + 2", "string");
+            fn string_plus_number_converts_to_string() {
+                assert_str(eval_ok("\"one\" + 2"), "one2");
             }
 
             #[test]
-            fn number_plus_boolean() {
-                assert_incorrect_type_for("1 + true", "number");
+            fn string_plus_boolean_converts_to_string() {
+                assert_str(eval_ok("\"a\" + true"), "atrue");
             }
 
             #[test]
-            fn boolean_plus_number() {
-                assert_incorrect_type_for("false + 1", "boolean");
+            fn boolean_plus_string_converts_to_string() {
+                assert_str(eval_ok("true + \"a\""), "truea");
             }
 
             #[test]
-            fn number_plus_nil() {
-                assert_incorrect_type_for("1 + nil", "number");
+            fn string_plus_nil_converts_to_string() {
+                assert_str(eval_ok("\"a\" + nil"), "anil");
             }
 
             #[test]
-            fn nil_plus_number() {
-                assert_incorrect_type_for("nil + 1", "nil");
-            }
-
-            #[test]
-            fn string_plus_boolean() {
-                assert_incorrect_type_for("\"a\" + true", "string");
-            }
-
-            #[test]
-            fn boolean_plus_string() {
-                assert_incorrect_type_for("true + \"a\"", "boolean");
-            }
-
-            #[test]
-            fn string_plus_nil() {
-                assert_incorrect_type_for("\"a\" + nil", "string");
-            }
-
-            #[test]
-            fn nil_plus_string() {
-                assert_incorrect_type_for("nil + \"a\"", "nil");
-            }
-
-            #[test]
-            fn boolean_plus_boolean() {
-                assert_incorrect_type_for("true + false", "boolean");
-            }
-
-            #[test]
-            fn nil_plus_nil() {
-                assert_incorrect_type_for("nil + nil", "nil");
-            }
-
-            #[test]
-            fn boolean_plus_nil() {
-                assert_incorrect_type_for("true + nil", "boolean");
+            fn nil_plus_string_converts_to_string() {
+                assert_str(eval_ok("nil + \"a\""), "nila");
             }
 
             #[test]
             fn number_plus_string_via_manual_construction() {
                 let expr = binary(lit_number(1), Plus, lit_string("x"));
-                assert_incorrect_type_expr(expr, "number");
+                assert_str(eval_expr_ok(expr), "1x");
+            }
+
+            #[test]
+            fn number_plus_boolean_is_type_error() {
+                assert_incorrect_type_for("1 + true", "number");
+            }
+
+            #[test]
+            fn boolean_plus_number_is_type_error() {
+                assert_incorrect_type_for("false + 1", "boolean");
+            }
+
+            #[test]
+            fn number_plus_nil_is_type_error() {
+                assert_incorrect_type_for("1 + nil", "number");
+            }
+
+            #[test]
+            fn nil_plus_number_is_type_error() {
+                assert_incorrect_type_for("nil + 1", "nil");
+            }
+
+            #[test]
+            fn boolean_plus_boolean_is_type_error() {
+                assert_incorrect_type_for("true + false", "boolean");
+            }
+
+            #[test]
+            fn nil_plus_nil_is_type_error() {
+                assert_incorrect_type_for("nil + nil", "nil");
+            }
+
+            #[test]
+            fn boolean_plus_nil_is_type_error() {
+                assert_incorrect_type_for("true + nil", "boolean");
             }
         }
 
@@ -944,12 +955,14 @@ mod tests {
 
             #[test]
             fn number_minus_string() {
-                assert_incorrect_type_for("1 - \"b\"", "number");
+                let expr = binary(lit_number(1), Minus, lit_string("b"));
+                assert_incorrect_operator_expr(expr, Minus);
             }
 
             #[test]
             fn string_minus_number() {
-                assert_incorrect_type_for("\"a\" - 1", "string");
+                let expr = binary(lit_string("a"), Minus, lit_number(1));
+                assert_incorrect_operator_expr(expr, Minus);
             }
 
             #[test]
@@ -989,12 +1002,14 @@ mod tests {
 
             #[test]
             fn number_times_string() {
-                assert_incorrect_type_for("2 * \"a\"", "number");
+                let expr = binary(lit_number(2), Star, lit_string("a"));
+                assert_incorrect_operator_expr(expr, Star);
             }
 
             #[test]
             fn string_times_number() {
-                assert_incorrect_type_for("\"a\" * 2", "string");
+                let expr = binary(lit_string("a"), Star, lit_number(2));
+                assert_incorrect_operator_expr(expr, Star);
             }
 
             #[test]
@@ -1024,12 +1039,14 @@ mod tests {
 
             #[test]
             fn number_divided_by_string() {
-                assert_incorrect_type_for("8 / \"b\"", "number");
+                let expr = binary(lit_number(8), Slash, lit_string("b"));
+                assert_incorrect_operator_expr(expr, Slash);
             }
 
             #[test]
             fn string_divided_by_number() {
-                assert_incorrect_type_for("\"a\" / 2", "string");
+                let expr = binary(lit_string("a"), Slash, lit_number(2));
+                assert_incorrect_operator_expr(expr, Slash);
             }
 
             #[test]
@@ -1059,12 +1076,14 @@ mod tests {
 
             #[test]
             fn number_less_than_string() {
-                assert_incorrect_type_for("1 < \"2\"", "number");
+                let expr = binary(lit_number(1), Less, lit_string("2"));
+                assert_incorrect_operator_expr(expr, Less);
             }
 
             #[test]
             fn string_less_than_number() {
-                assert_incorrect_type_for("\"1\" < 2", "string");
+                let expr = binary(lit_string("1"), Less, lit_number(2));
+                assert_incorrect_operator_expr(expr, Less);
             }
 
             #[test]
@@ -1094,18 +1113,20 @@ mod tests {
 
             #[test]
             fn string_greater_than_number() {
-                assert_incorrect_type_for("\"a\" > 1", "string");
+                let expr = binary(lit_string("a"), Greater, lit_number(1));
+                assert_incorrect_operator_expr(expr, Greater);
             }
 
             #[test]
             fn number_greater_equal_string() {
-                assert_incorrect_type_for("1 >= \"1\"", "number");
+                let expr = binary(lit_number(1), GreaterEqual, lit_string("1"));
+                assert_incorrect_operator_expr(expr, GreaterEqual);
             }
 
             #[test]
             fn comparison_between_number_and_string_via_manual_construction() {
                 let expr = binary(lit_number(1), Less, lit_string("2"));
-                assert_incorrect_type_expr(expr, "number");
+                assert_incorrect_operator_expr(expr, Less);
             }
 
             #[test]
@@ -1181,7 +1202,7 @@ mod tests {
 
             #[test]
             fn addition_error_includes_expected_type() {
-                let err = eval_parse("1 + \"two\"").unwrap_err();
+                let err = eval_parse("1 + true").unwrap_err();
                 assert_eq!(
                     err.to_string(),
                     "Unexpected operand Number(1.0) for operator Plus \"+\"!"

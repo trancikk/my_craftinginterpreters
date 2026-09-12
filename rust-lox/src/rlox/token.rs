@@ -80,7 +80,7 @@ pub enum TokenType {
     LessEqual,
 
     // Literals
-    Identifier(String),
+    Identifier,
     StringToken(String),
     Number(u64),
     FloatNumber(f64),

@@ -1,5 +1,5 @@
-use crate::rlox::eval::{RuntimeError, eval_expr};
-use crate::rlox::parser::{Expr, Parser};
+use crate::rlox::eval::{RuntimeError, eval_statement};
+use crate::rlox::parser::{Parser, Statement};
 use crate::rlox::scanner::Scanner;
 use crate::rlox::token::Token;
 use std::fs::File;
@@ -64,8 +64,8 @@ impl RLox {
         let scanner = Scanner::new(lines);
         let mut parser = Parser::new(scanner);
         loop {
-            let expr = parser.expression();
-            match expr {
+            let stmtns = parser.parse_statements();
+            match stmtns {
                 Err(e) => {
                     let msg = e.to_string();
                     match e {
@@ -98,10 +98,11 @@ impl RLox {
         eprintln!("{:?} at '{:?}' {:?}", token.line, token.lexeme, msg);
     }
 
-    pub fn interpret(&mut self, expr: Expr) {
-        let result = eval_expr(expr);
+    pub fn interpret(&mut self, statement: Statement) {
+        let result = eval_statement(statement);
         match result {
-            Ok(value) => println!("{value:?}"),
+            // Ok(value) => println!("{value:?}"),
+            Ok(_) => {}
             Err(e) => {
                 let e_msg = e.to_string();
                 let token = match e {
