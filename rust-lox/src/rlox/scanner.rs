@@ -148,10 +148,34 @@ impl<'a> Scanner<'a> {
         if let Some(line) = line {
             let chars = line[self.current_position..].chars();
             for ch in chars {
-                self.advance_by_char(ch);
-                if ch.is_whitespace() {
+                // Stop at whitespace or punctuation that can't be part of an identifier
+                if ch.is_whitespace()
+                    || matches!(
+                        ch,
+                        ';' | ','
+                            | '('
+                            | ')'
+                            | '{'
+                            | '}'
+                            | '['
+                            | ']'
+                            | '.'
+                            | '?'
+                            | ':'
+                            | '+'
+                            | '-'
+                            | '*'
+                            | '/'
+                            | '!'
+                            | '='
+                            | '<'
+                            | '>'
+                            | '"'
+                    )
+                {
                     break;
                 }
+                self.advance_by_char(ch);
                 result.push(ch);
             }
         }

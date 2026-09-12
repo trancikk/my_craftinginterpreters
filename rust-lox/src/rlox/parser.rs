@@ -24,7 +24,7 @@ pub enum Literal {
 pub enum Statement {
     Print(Expr),
     ExprStatement(Expr),
-    DeclarationStatement(String, Expr),
+    DeclarationStatement(String, Option<Expr>),
 }
 
 #[derive(Debug)]
@@ -88,10 +88,14 @@ impl<'src> Parser<'src> {
     fn parse_declarations(&mut self) -> Result<Statement, RloxError> {
         self.advance()?;
         let name = self.match_and_return(&Identifier)?;
-        self.consume(&Equal, "= is expected after var keyword!")?;
-        let init = self.expression()?;
+        let initializer = if self.check(&Equal) {
+            self.advance()?;
+            Some(self.expression()?)
+        } else {
+            None
+        };
         self.consume(&Semicolon, "statements should end with a semicolon! ;")?;
-        Ok(DeclarationStatement(name.lexeme, init))
+        Ok(DeclarationStatement(name.lexeme, initializer))
     }
 
     fn print_statement(&mut self) -> Result<Statement, RloxError> {
@@ -1693,8 +1697,199 @@ pub(crate) mod tests {
             }
 
             #[test]
-            fn rejects_missing_initializer() {
-                parse_statement_fails("var x;");
+            fn parses_var_declaration_without_initializer() {
+                let input = "var x;";
+                let scanner = Scanner::new(input.lines());
+                let mut parser = Parser::new(scanner);
+                let result = parser.parse_statements();
+                assert!(result.is_ok(), "Failed to parse: {:?}", result);
+                if let Ok(Statement::DeclarationStatement(name, init)) = result {
+                    assert_eq!(name, "x");
+                    assert!(init.is_none());
+                } else {
+                    panic!("expected DeclarationStatement");
+                }
+            }
+
+            #[test]
+            fn parses_var_declaration_without_initializer_multiple() {
+                let input = "var a; var b = 2; var c;";
+                let scanner = Scanner::new(input.lines());
+                let mut parser = Parser::new(scanner);
+
+                let stmt1 = parser.parse_statements();
+                assert!(stmt1.is_ok());
+                if let Statement::DeclarationStatement(name, init) = stmt1.unwrap() {
+                    assert_eq!(name, "a");
+                    assert!(init.is_none());
+                }
+
+                let stmt2 = parser.parse_statements();
+                assert!(stmt2.is_ok());
+                if let Statement::DeclarationStatement(name, init) = stmt2.unwrap() {
+                    assert_eq!(name, "b");
+                    assert!(init.is_some());
+                }
+
+                let stmt3 = parser.parse_statements();
+                assert!(stmt3.is_ok());
+                if let Statement::DeclarationStatement(name, init) = stmt3.unwrap() {
+                    assert_eq!(name, "c");
+                    assert!(init.is_none());
+                }
+            }
+
+            #[test]
+            fn parses_mixed_initialized_and_uninitialized() {
+                let input = "var a = 1; var b; var c = 3; var d;";
+                let scanner = Scanner::new(input.lines());
+                let mut parser = Parser::new(scanner);
+
+                let expected = vec![
+                    ("a", true),  // initialized
+                    ("b", false), // uninitialized
+                    ("c", true),  // initialized
+                    ("d", false), // uninitialized
+                ];
+
+                for (name, should_have_init) in expected {
+                    let stmt = parser.parse_statements();
+                    assert!(stmt.is_ok());
+                    if let Statement::DeclarationStatement(n, init) = stmt.unwrap() {
+                        assert_eq!(n, name);
+                        assert_eq!(init.is_some(), should_have_init, "{name} init mismatch");
+                    } else {
+                        panic!("expected DeclarationStatement");
+                    }
+                }
+
+                // Next should be EOF
+                assert!(parser.parse_statements().is_err());
+            }
+
+            #[test]
+            fn parses_declaration_without_initializer_then_print() {
+                let input = "var x; print 42;";
+                let scanner = Scanner::new(input.lines());
+                let mut parser = Parser::new(scanner);
+
+                let stmt1 = parser.parse_statements();
+                assert!(stmt1.is_ok());
+                if let Statement::DeclarationStatement(name, init) = stmt1.unwrap() {
+                    assert_eq!(name, "x");
+                    assert!(init.is_none());
+                }
+
+                let stmt2 = parser.parse_statements();
+                assert!(stmt2.is_ok());
+                assert!(matches!(stmt2.unwrap(), Statement::Print(_)));
+            }
+
+            #[test]
+            fn parses_var_declaration_with_complex_initializer() {
+                let input = "var x = (1 + 2) * 3 - 4 / 5;";
+                let scanner = Scanner::new(input.lines());
+                let mut parser = Parser::new(scanner);
+
+                let stmt = parser.parse_statements();
+                assert!(stmt.is_ok());
+                if let Statement::DeclarationStatement(name, init) = stmt.unwrap() {
+                    assert_eq!(name, "x");
+                    assert!(init.is_some());
+                }
+            }
+
+            #[test]
+            fn parses_multiple_uninitialized_then_initialized() {
+                // All uninitialized first, then initialized
+                let input = "var a; var b; var c = 1 + 2;";
+                let scanner = Scanner::new(input.lines());
+                let mut parser = Parser::new(scanner);
+
+                let stmt1 = parser.parse_statements();
+                assert!(
+                    matches!(stmt1.unwrap(), Statement::DeclarationStatement(n, i) if n == "a" && i.is_none())
+                );
+
+                let stmt2 = parser.parse_statements();
+                assert!(
+                    matches!(stmt2.unwrap(), Statement::DeclarationStatement(n, i) if n == "b" && i.is_none())
+                );
+
+                let stmt3 = parser.parse_statements();
+                assert!(
+                    matches!(stmt3.unwrap(), Statement::DeclarationStatement(n, i) if n == "c" && i.is_some())
+                );
+            }
+
+            #[test]
+            fn rejects_equals_without_expression() {
+                // 'var x = ;' should fail - equals present but no expression
+                parse_statement_fails("var x = ;");
+            }
+
+            #[test]
+            fn parses_uninitialized_with_ternary_in_next_declaration() {
+                let input = "var a; var b = true ? 1 : 2;";
+                let scanner = Scanner::new(input.lines());
+                let mut parser = Parser::new(scanner);
+
+                let stmt1 = parser.parse_statements();
+                assert!(
+                    matches!(stmt1.unwrap(), Statement::DeclarationStatement(n, i) if n == "a" && i.is_none())
+                );
+
+                let stmt2 = parser.parse_statements();
+                assert!(
+                    matches!(stmt2.unwrap(), Statement::DeclarationStatement(n, i) if n == "b" && i.is_some())
+                );
+            }
+
+            #[test]
+            fn parses_uninitialized_then_expression_statement() {
+                let input = "var x; 1 + 2;";
+                let scanner = Scanner::new(input.lines());
+                let mut parser = Parser::new(scanner);
+
+                let stmt1 = parser.parse_statements();
+                assert!(
+                    matches!(stmt1.unwrap(), Statement::DeclarationStatement(n, i) if n == "x" && i.is_none())
+                );
+
+                let stmt2 = parser.parse_statements();
+                assert!(matches!(stmt2.unwrap(), Statement::ExprStatement(_)));
+            }
+
+            #[test]
+            fn initializer_none_is_distinct_from_nil_literal() {
+                // var x; should have init = None, not init = Some(nil)
+                let input = "var x; var y = nil;";
+                let scanner = Scanner::new(input.lines());
+                let mut parser = Parser::new(scanner);
+
+                let stmt1 = parser.parse_statements();
+                if let Statement::DeclarationStatement(name, init) = stmt1.unwrap() {
+                    assert_eq!(name, "x");
+                    assert!(
+                        init.is_none(),
+                        "uninitialized should be None, not Some(nil)"
+                    );
+                }
+
+                let stmt2 = parser.parse_statements();
+                if let Statement::DeclarationStatement(name, init) = stmt2.unwrap() {
+                    assert_eq!(name, "y");
+                    assert!(init.is_some(), "initialized with nil should be Some");
+                    // The inner expression should be a nil literal
+                    if let Some(expr) = init {
+                        assert!(matches!(
+                            expr,
+                            crate::rlox::parser::Expr::SyntaxLiteral(
+                                crate::rlox::parser::Literal::Nil
+                            )
+                        ));
+                    }
+                }
             }
 
             #[test]
@@ -2288,8 +2483,9 @@ pub(crate) mod tests {
         }
 
         #[test]
-        fn error_on_missing_initializer_includes_location() {
-            let input = "var x;";
+        fn error_on_missing_initializer_after_equals() {
+            // 'var x = ;' should fail - equals present but no expression
+            let input = "var x = ;";
             let scanner = Scanner::new(input.lines());
             let mut parser = Parser::new(scanner);
             let result = parser.parse_statements();
