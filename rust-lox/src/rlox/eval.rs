@@ -177,15 +177,19 @@ mod tests {
     use crate::rlox::token::{Token, TokenType};
 
     fn eval_ok(input: &str) -> Value {
-        eval_expr(parse_ok(input)).unwrap_or_else(|e| panic!("eval failed for {input:?}: {e}"))
+        let env = Env::new();
+        eval_expr(&env, parse_ok(input))
+            .unwrap_or_else(|e| panic!("eval failed for {input:?}: {e}"))
     }
 
     fn eval_parse(input: &str) -> Result<Value, RuntimeError> {
-        eval_expr(parse_ok(input))
+        let env = Env::new();
+        eval_expr(&env, parse_ok(input))
     }
 
     fn eval_expr_ok(expr: Expr) -> Value {
-        eval_expr(expr).unwrap_or_else(|e| panic!("eval failed: {e}"))
+        let env = Env::new();
+        eval_expr(&env, expr).unwrap_or_else(|e| panic!("eval failed: {e}"))
     }
 
     fn get_type_name(value: &Value) -> &'static str {
@@ -212,7 +216,8 @@ mod tests {
     }
 
     fn assert_incorrect_type_expr(expr: Expr, expected_type: &str) {
-        assert_incorrect_type(eval_expr(expr), expected_type);
+        let env = Env::new();
+        assert_incorrect_type(eval_expr(&env, expr), expected_type);
     }
 
     fn assert_incorrect_operator(result: Result<Value, RuntimeError>, expected: TokenType) {
@@ -224,7 +229,8 @@ mod tests {
     }
 
     fn assert_incorrect_operator_expr(expr: Expr, expected: TokenType) {
-        assert_incorrect_operator(eval_expr(expr), expected);
+        let env = Env::new();
+        assert_incorrect_operator(eval_expr(&env, expr), expected);
     }
 
     fn token(token_type: TokenType) -> Token {
@@ -817,7 +823,8 @@ mod tests {
             #[test]
             fn bare_plus_operator() {
                 let expr = MissingLeftOperand { token: token(Plus) };
-                let err = eval_expr(expr).unwrap_err();
+                let env = Env::new();
+                let err = eval_expr(&env, expr).unwrap_err();
                 assert!(matches!(err, RuntimeError::EvaluationError(_, _)));
             }
 
@@ -826,21 +833,24 @@ mod tests {
                 let expr = MissingLeftOperand {
                     token: token(Minus),
                 };
-                let err = eval_expr(expr).unwrap_err();
+                let env = Env::new();
+                let err = eval_expr(&env, expr).unwrap_err();
                 assert!(matches!(err, RuntimeError::EvaluationError(_, _)));
             }
 
             #[test]
             fn bare_bang_operator() {
                 let expr = MissingLeftOperand { token: token(Bang) };
-                let err = eval_expr(expr).unwrap_err();
+                let env = Env::new();
+                let err = eval_expr(&env, expr).unwrap_err();
                 assert!(matches!(err, RuntimeError::EvaluationError(_, _)));
             }
 
             #[test]
             fn bare_star_operator() {
                 let expr = MissingLeftOperand { token: token(Star) };
-                let err = eval_expr(expr).unwrap_err();
+                let env = Env::new();
+                let err = eval_expr(&env, expr).unwrap_err();
                 assert!(matches!(err, RuntimeError::EvaluationError(_, _)));
             }
         }
@@ -851,7 +861,8 @@ mod tests {
             #[test]
             fn binary_operator_error_message() {
                 let expr = binary(lit_number(1), Bang, lit_number(2));
-                let err = eval_expr(expr).unwrap_err();
+                let env = Env::new();
+                let err = eval_expr(&env, expr).unwrap_err();
                 assert_eq!(
                     err.to_string(),
                     "Incorrect operator `Token { token_type: Bang, lexeme: \"\", line: 1 }`!"
@@ -861,7 +872,8 @@ mod tests {
             #[test]
             fn unary_operator_error_message() {
                 let expr = unary(Plus, lit_number(1));
-                let err = eval_expr(expr).unwrap_err();
+                let env = Env::new();
+                let err = eval_expr(&env, expr).unwrap_err();
                 assert_eq!(
                     err.to_string(),
                     "Incorrect operator `Token { token_type: Plus, lexeme: \"\", line: 1 }`!"
@@ -871,10 +883,11 @@ mod tests {
             #[test]
             fn operator_placeholder_error_message() {
                 let expr = MissingLeftOperand { token: token(Star) };
-                let err = eval_expr(expr).unwrap_err();
+                let env = Env::new();
+                let err = eval_expr(&env, expr).unwrap_err();
                 assert_eq!(
                     err.to_string(),
-                    "\"Missing left operand for token Star \\\"\\\"\""
+                    "\"Missing left operand for token  at line 1\""
                 );
             }
         }
@@ -1219,7 +1232,7 @@ mod tests {
                 let err = eval_parse("1 + true").unwrap_err();
                 assert_eq!(
                     err.to_string(),
-                    "Unexpected operand Number(1.0) for operator Plus \"+\"!"
+                    "Unexpected operand Number(1.0) for operator + at line 0!"
                 );
             }
 
@@ -1237,7 +1250,7 @@ mod tests {
                 let err = eval_parse("true < 1").unwrap_err();
                 assert_eq!(
                     err.to_string(),
-                    "Unexpected operand Boolean(true) for operator Less \"<\"!"
+                    "Unexpected operand Boolean(true) for operator < at line 0!"
                 );
             }
 
@@ -1246,7 +1259,7 @@ mod tests {
                 let err = eval_parse("-nil").unwrap_err();
                 assert_eq!(
                     err.to_string(),
-                    "Unexpected operand Nil for operator Minus \"-\"!"
+                    "Unexpected operand Nil for operator - at line 0!"
                 );
             }
 
@@ -1255,7 +1268,7 @@ mod tests {
                 let err = eval_parse("1 + true").unwrap_err();
                 assert_eq!(
                     err.to_string(),
-                    "Unexpected operand Number(1.0) for operator Plus \"+\"!"
+                    "Unexpected operand Number(1.0) for operator + at line 0!"
                 );
             }
 
@@ -1264,7 +1277,7 @@ mod tests {
                 let err = eval_parse("true - 1").unwrap_err();
                 assert_eq!(
                     err.to_string(),
-                    "Unexpected operand Boolean(true) for operator Minus \"-\"!"
+                    "Unexpected operand Boolean(true) for operator - at line 0!"
                 );
             }
         }
@@ -1319,6 +1332,140 @@ mod tests {
         #[test]
         fn integer_and_float_addition() {
             assert_number(eval_ok("1 + 2.5"), 3.5);
+        }
+    }
+
+    mod identifiers {
+        use super::*;
+        use crate::rlox::eval::{RuntimeError, eval_statement};
+        use crate::rlox::parser::tests::parse_statement_ok;
+
+        fn eval_ok_with_env(env: &Env, input: &str) -> Value {
+            eval_expr(env, parse_ok(input))
+                .unwrap_or_else(|e| panic!("eval failed for {input:?}: {e}"))
+        }
+
+        #[test]
+        fn var_declaration_with_initializer() {
+            let mut env = Env::new();
+            let stmt = parse_statement_ok("var x = 42;");
+            eval_statement(&mut env, stmt).unwrap();
+            assert_number(eval_ok_with_env(&env, "x"), 42.0);
+        }
+
+        #[test]
+        fn var_declaration_without_initializer_defaults_to_nil() {
+            let mut env = Env::new();
+            let stmt = parse_statement_ok("var x;");
+            eval_statement(&mut env, stmt).unwrap();
+            assert_nil(eval_ok_with_env(&env, "x"));
+        }
+
+        #[test]
+        fn var_declaration_with_expression_initializer() {
+            let mut env = Env::new();
+            let stmt = parse_statement_ok("var x = 1 + 2 * 3;");
+            eval_statement(&mut env, stmt).unwrap();
+            assert_number(eval_ok_with_env(&env, "x"), 7.0);
+        }
+
+        #[test]
+        fn var_declaration_with_string_initializer() {
+            let mut env = Env::new();
+            let stmt = parse_statement_ok("var name = \"hello\";");
+            eval_statement(&mut env, stmt).unwrap();
+            assert_str(eval_ok_with_env(&env, "name"), "hello");
+        }
+
+        #[test]
+        fn identifier_lookup_after_declaration() {
+            let mut env = Env::new();
+            eval_statement(&mut env, parse_statement_ok("var a = 1;")).unwrap();
+            eval_statement(&mut env, parse_statement_ok("var b = 2;")).unwrap();
+            assert_number(eval_ok_with_env(&env, "a"), 1.0);
+            assert_number(eval_ok_with_env(&env, "b"), 2.0);
+        }
+
+        #[test]
+        fn identifier_used_in_expression() {
+            let mut env = Env::new();
+            eval_statement(&mut env, parse_statement_ok("var x = 10;")).unwrap();
+            assert_number(eval_ok_with_env(&env, "x + 5"), 15.0);
+            assert_number(eval_ok_with_env(&env, "x * 2"), 20.0);
+            assert_number(eval_ok_with_env(&env, "x - 3"), 7.0);
+            assert_number(eval_ok_with_env(&env, "x / 2"), 5.0);
+        }
+
+        #[test]
+        fn identifier_used_in_comparison() {
+            let mut env = Env::new();
+            eval_statement(&mut env, parse_statement_ok("var x = 5;")).unwrap();
+            assert_bool(eval_ok_with_env(&env, "x > 3"), true);
+            assert_bool(eval_ok_with_env(&env, "x < 10"), true);
+            assert_bool(eval_ok_with_env(&env, "x == 5"), true);
+            assert_bool(eval_ok_with_env(&env, "x != 6"), true);
+        }
+
+        #[test]
+        fn identifier_used_in_ternary() {
+            let mut env = Env::new();
+            eval_statement(&mut env, parse_statement_ok("var cond = true;")).unwrap();
+            assert_number(eval_ok_with_env(&env, "cond ? 1 : 2"), 1.0);
+            eval_statement(&mut env, parse_statement_ok("var cond = false;")).unwrap();
+            assert_number(eval_ok_with_env(&env, "cond ? 1 : 2"), 2.0);
+        }
+
+        #[test]
+        fn identifier_used_in_grouping() {
+            let mut env = Env::new();
+            eval_statement(&mut env, parse_statement_ok("var x = 3;")).unwrap();
+            assert_number(eval_ok_with_env(&env, "(x)"), 3.0);
+            assert_number(eval_ok_with_env(&env, "((x))"), 3.0);
+        }
+
+        #[test]
+        fn multiple_variables_in_expression() {
+            let mut env = Env::new();
+            eval_statement(&mut env, parse_statement_ok("var a = 1;")).unwrap();
+            eval_statement(&mut env, parse_statement_ok("var b = 2;")).unwrap();
+            eval_statement(&mut env, parse_statement_ok("var c = 3;")).unwrap();
+            assert_number(eval_ok_with_env(&env, "a + b + c"), 6.0);
+            assert_number(eval_ok_with_env(&env, "a * b * c"), 6.0);
+        }
+
+        #[test]
+        fn identifier_not_found_returns_error() {
+            let env = Env::new();
+            let err = eval_expr(&env, parse_ok("undefined_var")).unwrap_err();
+            assert!(matches!(err, RuntimeError::IdentifierNotFound(_)));
+        }
+
+        #[test]
+        fn identifier_not_found_error_message() {
+            let env = Env::new();
+            let err = eval_expr(&env, parse_ok("missing")).unwrap_err();
+            assert_eq!(
+                err.to_string(),
+                "Identifier Token { token_type: Identifier, lexeme: \"missing\", line: 0 } not found!"
+            );
+        }
+
+        #[test]
+        fn redefine_variable() {
+            let mut env = Env::new();
+            eval_statement(&mut env, parse_statement_ok("var x = 1;")).unwrap();
+            assert_number(eval_ok_with_env(&env, "x"), 1.0);
+            eval_statement(&mut env, parse_statement_ok("var x = 2;")).unwrap();
+            assert_number(eval_ok_with_env(&env, "x"), 2.0);
+        }
+
+        #[test]
+        fn variable_shadowing_not_supported_in_same_scope() {
+            // Current implementation allows redefinition in same scope
+            let mut env = Env::new();
+            eval_statement(&mut env, parse_statement_ok("var x = 1;")).unwrap();
+            eval_statement(&mut env, parse_statement_ok("var x = 2;")).unwrap();
+            assert_number(eval_ok_with_env(&env, "x"), 2.0);
         }
     }
 }

@@ -136,4 +136,67 @@ mod tests {
         rlox.run("1+2");
         assert!(!rlox.had_error);
     }
+
+    #[test]
+    fn var_declaration_and_lookup() {
+        let mut rlox = RLox::new();
+        rlox.run("var x = 42; x;");
+        assert!(!rlox.had_error);
+    }
+
+    #[test]
+    fn var_declaration_without_initializer() {
+        let mut rlox = RLox::new();
+        rlox.run("var x; x;");
+        assert!(!rlox.had_error);
+    }
+
+    #[test]
+    fn multiple_variables() {
+        let mut rlox = RLox::new();
+        rlox.run("var a = 1; var b = 2; a + b;");
+        assert!(!rlox.had_error);
+    }
+
+    #[test]
+    fn variable_in_expression() {
+        let mut rlox = RLox::new();
+        rlox.run("var x = 10; x * 2 + 5;");
+        assert!(!rlox.had_error);
+    }
+
+    #[test]
+    fn undefined_variable_error() {
+        let mut rlox = RLox::new();
+        rlox.run("undefined_var;");
+        assert!(rlox.had_error);
+    }
+
+    #[test]
+    fn redefine_variable() {
+        let mut rlox = RLox::new();
+        rlox.run("var x = 1; var x = 2; x;");
+        assert!(!rlox.had_error);
+    }
+
+    #[test]
+    fn variable_in_comparison() {
+        let mut rlox = RLox::new();
+        rlox.run("var x = 5; x > 3;");
+        assert!(!rlox.had_error);
+    }
+
+    #[test]
+    fn variable_in_ternary() {
+        let mut rlox = RLox::new();
+        rlox.run("var cond = true; cond ? 1 : 2;");
+        assert!(!rlox.had_error);
+    }
+
+    #[test]
+    fn print_variable() {
+        let mut rlox = RLox::new();
+        rlox.run("var x = 42; print x;");
+        assert!(!rlox.had_error);
+    }
 }

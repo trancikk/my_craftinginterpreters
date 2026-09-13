@@ -1262,8 +1262,10 @@ pub(crate) mod tests {
         }
 
         #[test]
-        fn rejects_identifier() {
-            parse_expression_fails("foo");
+        fn parses_identifier_expression() {
+            parsed!("foo", |expr| {
+                assert!(matches!(expr, Expr::IdentifierExpression(_)));
+            });
         }
 
         #[test]
