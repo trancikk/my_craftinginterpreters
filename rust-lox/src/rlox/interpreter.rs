@@ -1,3 +1,4 @@
+use crate::rlox::environment::Env;
 use crate::rlox::eval::{RuntimeError, eval_statement};
 use crate::rlox::parser::{Parser, Statement};
 use crate::rlox::scanner::Scanner;
@@ -10,6 +11,7 @@ use thiserror::Error;
 
 pub struct RLox {
     pub had_error: bool,
+    env: Env,
 }
 
 // TODO add RuntimeError, use it in report error method
@@ -24,6 +26,13 @@ pub enum RloxError {
 }
 
 impl RLox {
+    pub fn new() -> RLox {
+        RLox {
+            env: Env::new(),
+            had_error: false,
+        }
+    }
+
     pub fn run_file(&mut self, path: &str) -> anyhow::Result<()> {
         // TODO make is return lines
         let mut file = File::open(path)?;
@@ -99,7 +108,7 @@ impl RLox {
     }
 
     pub fn interpret(&mut self, statement: Statement) {
-        let result = eval_statement(statement);
+        let result = eval_statement(&mut self.env, statement);
         match result {
             // Ok(value) => println!("{value:?}"),
             Ok(_) => {}
@@ -109,6 +118,7 @@ impl RLox {
                     RuntimeError::IncorrectType(_, token) => token,
                     RuntimeError::IncorrectOperator(token) => token,
                     RuntimeError::EvaluationError(_, token) => token,
+                    RuntimeError::IdentifierNotFound(token) => token,
                 };
                 self.report_token(&token, &e_msg);
             }
@@ -122,7 +132,7 @@ mod tests {
 
     #[test]
     fn it_works() {
-        let mut rlox = RLox { had_error: false };
+        let mut rlox = RLox::new();
         rlox.run("1+2");
         assert!(!rlox.had_error);
     }

@@ -1,11 +1,13 @@
 mod rlox;
-use rlox::interpreter;
 
+
+use crate::rlox::interpreter::RLox;
 use std::{env, process};
+
 fn main() {
     let args = env::args();
     let len = args.len();
-    let mut interpreter = interpreter::RLox { had_error: false };
+    let mut interpreter = RLox::new();
     let result = match len {
         v if v > 2 => {
             println!("Usage: rlo [script]");

@@ -30,6 +30,7 @@ pub enum Statement {
 #[derive(Debug)]
 pub enum Expr {
     SyntaxLiteral(Literal),
+    IdentifierExpression(Token),
     Binary {
         left: Box<Expr>,
         op: Token,
@@ -244,6 +245,7 @@ impl<'src> Parser<'src> {
     fn primary(&mut self) -> Result<Expr, RloxError> {
         let next = self.advance()?;
         match next.token_type.clone() {
+            Identifier => Ok(Expr::IdentifierExpression(next)),
             False => Ok(Expr::SyntaxLiteral(Literal::False)),
             True => Ok(Expr::SyntaxLiteral(Literal::True)),
             Nil => Ok(Expr::SyntaxLiteral(Literal::Nil)),

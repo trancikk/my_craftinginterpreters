@@ -48,7 +48,7 @@ impl Token {
 
 impl Display for Token {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?} {:?}", self.token_type, self.lexeme)
+        write!(f, "{} at line {}", self.lexeme, self.line)
     }
 }
 

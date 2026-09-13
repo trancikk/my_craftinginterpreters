@@ -1,3 +1,4 @@
+use crate::rlox::environment::Env;
 use crate::rlox::eval::RuntimeError::{IncorrectOperator, IncorrectType};
 use crate::rlox::parser::{
     Expr,
@@ -10,7 +11,7 @@ use std::fmt::{Display, Formatter};
 use std::ops::Neg;
 use thiserror::Error;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Value {
     Number(f64),
     Str(String),
@@ -38,6 +39,8 @@ pub enum RuntimeError {
     IncorrectOperator(Token),
     #[error("{0:?}")]
     EvaluationError(String, Token),
+    #[error("Identifier {0:?} not found!")]
+    IdentifierNotFound(Token),
 }
 
 fn is_truthy(value: &Value) -> bool {
@@ -48,23 +51,27 @@ fn is_equal(value1: &Value, value2: &Value) -> bool {
     value1 == value2
 }
 
-pub fn eval_statement(statement: Statement) -> Result<(), RuntimeError> {
+pub fn eval_statement(env: &mut Env, statement: Statement) -> Result<(), RuntimeError> {
     match statement {
-        Statement::DeclarationStatement(_name, _expr) => {
-
-        },
+        Statement::DeclarationStatement(name, expr) => {
+            let initial_value = match expr {
+                Some(expr) => eval_expr(env, expr)?,
+                None => Value::Nil,
+            };
+            env.define(name, initial_value)
+        }
         Statement::ExprStatement(expr) => {
-            eval_expr(expr);
-        },
+            eval_expr(env, expr)?;
+        }
         Statement::Print(expr) => {
-            let value = eval_expr(expr)?;
+            let value = eval_expr(env, expr)?;
             println!("{value}");
         }
     };
     Ok(())
 }
 
-pub fn eval_expr(exp: Expr) -> Result<Value, RuntimeError> {
+pub fn eval_expr(env: &Env, exp: Expr) -> Result<Value, RuntimeError> {
     match exp {
         Expr::SyntaxLiteral(literal) => Ok(match literal {
             Number(value) => Value::Number(value as f64),
@@ -75,8 +82,8 @@ pub fn eval_expr(exp: Expr) -> Result<Value, RuntimeError> {
             StringL(value) => Value::Str(value),
         }),
         Expr::Binary { left, op, right } => {
-            let left_value = eval_expr(*left)?;
-            let right_value = eval_expr(*right)?;
+            let left_value = eval_expr(env, *left)?;
+            let right_value = eval_expr(env, *right)?;
             if op.token_type == TokenType::EqualEqual {
                 return Ok(Value::Boolean(is_equal(&left_value, &right_value)));
             } else if op.token_type == TokenType::BangEqual {
@@ -120,15 +127,15 @@ pub fn eval_expr(exp: Expr) -> Result<Value, RuntimeError> {
             left,
             right,
         } => {
-            let predicate_result = eval_expr(*predicate)?;
+            let predicate_result = eval_expr(env, *predicate)?;
             if is_truthy(&predicate_result) {
-                eval_expr(*left)
+                eval_expr(env, *left)
             } else {
-                eval_expr(*right)
+                eval_expr(env, *right)
             }
         }
         Expr::Unary { op, right } => {
-            let right_value = eval_expr(*right)?;
+            let right_value = eval_expr(env, *right)?;
             match op.token_type {
                 TokenType::Bang => Ok(Value::Boolean(!is_truthy(&right_value))),
                 TokenType::Minus => {
@@ -140,10 +147,17 @@ pub fn eval_expr(exp: Expr) -> Result<Value, RuntimeError> {
                 _ => Err(IncorrectOperator(op)),
             }
         }
-        Expr::Grouping { expr } => eval_expr(*expr),
+        Expr::Grouping { expr } => eval_expr(env, *expr),
         Expr::MissingLeftOperand { token } => {
             let msg = format!("Missing left operand for token {token}");
             Err(RuntimeError::EvaluationError(msg, token))
+        }
+        Expr::IdentifierExpression(token) => {
+            if let Some(identifier_value) = env.get(&token.lexeme) {
+                Ok(identifier_value.clone())
+            } else {
+                Err(RuntimeError::IdentifierNotFound(token))
+            }
         }
     }
 }
