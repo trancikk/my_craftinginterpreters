@@ -71,7 +71,7 @@ pub fn eval_statement(env: &mut Env, statement: Statement) -> Result<(), Runtime
     Ok(())
 }
 
-pub fn eval_expr(env: &Env, exp: Expr) -> Result<Value, RuntimeError> {
+pub fn eval_expr(env: &mut Env, exp: Expr) -> Result<Value, RuntimeError> {
     match exp {
         Expr::SyntaxLiteral(literal) => Ok(match literal {
             Number(value) => Value::Number(value as f64),
@@ -81,6 +81,12 @@ pub fn eval_expr(env: &Env, exp: Expr) -> Result<Value, RuntimeError> {
             Nil => Value::Nil,
             StringL(value) => Value::Str(value),
         }),
+        Expr::AssignmentExpression { left, right } => {
+            let r_value = eval_expr(env, *right)?;
+            env.assign(&left.lexeme, r_value.clone());
+            Ok(r_value)
+            // TODO add error when variable doesn't exist
+        }
         Expr::Binary { left, op, right } => {
             let left_value = eval_expr(env, *left)?;
             let right_value = eval_expr(env, *right)?;

@@ -1,6 +1,8 @@
 use crate::rlox::interpreter::RloxError;
 use crate::rlox::interpreter::RloxError::ParserError;
-use crate::rlox::parser::Expr::{Binary, Grouping, MissingLeftOperand, Ternary, Unary};
+use crate::rlox::parser::Expr::{
+    AssignmentExpression, Binary, Grouping, MissingLeftOperand, Ternary, Unary,
+};
 use crate::rlox::parser::Statement::DeclarationStatement;
 use crate::rlox::scanner::Scanner;
 use crate::rlox::token::TokenType::{
@@ -48,6 +50,10 @@ pub enum Expr {
     Grouping {
         expr: Box<Expr>,
     },
+    AssignmentExpression {
+        left: Token,
+        right: Box<Expr>,
+    },
     MissingLeftOperand {
         token: Token,
     },
@@ -56,6 +62,7 @@ pub enum Expr {
 pub struct Parser<'src> {
     scanner: Scanner<'src>,
     current_token: Option<Token>,
+    next_token: Option<Token>,
 }
 
 impl<'src> Parser<'src> {
@@ -63,6 +70,7 @@ impl<'src> Parser<'src> {
         Parser {
             scanner,
             current_token: None,
+            next_token: None,
         }
     }
 
@@ -171,7 +179,31 @@ impl<'src> Parser<'src> {
             let expr = self.expression()?;
             return Self::produce_and_report_binary_error(expr, token);
         }
-        self.loop_inside_same_level(&[Comma], Self::ternary)
+        self.loop_inside_same_level(&[Comma], Self::assignment)
+    }
+
+    fn assignment(&mut self) -> Result<Expr, RloxError> {
+        let l_value = self.ternary()?;
+
+        if self.check(&Equal) {
+            match l_value {
+                Expr::IdentifierExpression(token) => {
+                    let r_value = self.assignment()?;
+                    Ok(AssignmentExpression {
+                        left: token,
+                        right: Box::new(r_value),
+                    })
+                }
+                _ => Self::produce_error_for_expression(
+                    self.current_token
+                        .clone()
+                        .expect("Token should be present at this stage"),
+                    "Invalid assignment target.",
+                ),
+            }
+        } else {
+            Ok(l_value)
+        }
     }
 
     fn ternary(&mut self) -> Result<Expr, RloxError> {
@@ -279,11 +311,11 @@ impl<'src> Parser<'src> {
     }
 
     fn peek(&mut self) -> Result<&Token, RloxError> {
-        if self.current_token.is_none() {
+        if self.next_token.is_none() {
             let next_token = self.scanner.scan_token()?;
-            self.current_token = Some(next_token);
+            self.next_token = Some(next_token);
         }
-        Ok(self.current_token.as_ref().unwrap())
+        Ok(self.next_token.as_ref().unwrap())
     }
 
     // TODO maybe return just token or EOF
@@ -346,11 +378,14 @@ impl<'src> Parser<'src> {
         self.peek().cloned()
     }
     fn advance(&mut self) -> Result<Token, RloxError> {
-        let token = self.current_token.take();
+        let token = self.next_token.take();
         if let Some(token) = token {
+            self.current_token = Some(token.clone());
             Ok(token)
         } else {
-            self.scanner.scan_token()
+            let next_token = self.scanner.scan_token()?;
+            self.current_token = Some(next_token.clone());
+            Ok(next_token)
         }
     }
 

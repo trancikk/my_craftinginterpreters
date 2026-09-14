@@ -18,4 +18,12 @@ impl Env {
     pub fn get(&self, name: &str) -> Option<&Value> {
         self.names.get(name)
     }
+
+    pub fn assign(&mut self, name: &str, value: Value) -> bool {
+        if self.names.contains_key(name) {
+            self.names.insert(name.to_string(), value).is_some()
+        } else {
+            false
+        }
+    }
 }
