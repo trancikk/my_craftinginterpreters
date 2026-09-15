@@ -188,6 +188,7 @@ impl<'src> Parser<'src> {
         if self.check(&Equal) {
             match l_value {
                 Expr::IdentifierExpression(token) => {
+                    self.advance()?;
                     let r_value = self.assignment()?;
                     Ok(AssignmentExpression {
                         left: token,
@@ -214,11 +215,11 @@ impl<'src> Parser<'src> {
                 &Colon,
                 "Expected ':' in a ternary operator after the predicate",
             )?;
-            let ternary_result = self.ternary()?;
+            let right = self.assignment()?;
             expr = Ternary {
                 predicate: Box::new(expr),
                 left: Box::new(left),
-                right: Box::new(ternary_result),
+                right: Box::new(right),
             }
         }
         Ok(expr)
@@ -1942,8 +1943,9 @@ pub(crate) mod tests {
             }
 
             #[test]
-            fn rejects_missing_var_keyword() {
-                parse_statement_fails("x = 1;");
+            fn do_not_rejects_missing_var_keyword() {
+                // its treated as assignment
+                parse_statement_ok("x = 1;");
             }
 
             #[test]
