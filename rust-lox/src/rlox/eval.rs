@@ -183,19 +183,19 @@ mod tests {
     use crate::rlox::token::{Token, TokenType};
 
     fn eval_ok(input: &str) -> Value {
-        let env = Env::new();
-        eval_expr(&env, parse_ok(input))
+        let mut env = Env::new();
+        eval_expr(&mut env, parse_ok(input))
             .unwrap_or_else(|e| panic!("eval failed for {input:?}: {e}"))
     }
 
     fn eval_parse(input: &str) -> Result<Value, RuntimeError> {
-        let env = Env::new();
-        eval_expr(&env, parse_ok(input))
+        let mut env = Env::new();
+        eval_expr(&mut env, parse_ok(input))
     }
 
     fn eval_expr_ok(expr: Expr) -> Value {
-        let env = Env::new();
-        eval_expr(&env, expr).unwrap_or_else(|e| panic!("eval failed: {e}"))
+        let mut env = Env::new();
+        eval_expr(&mut env, expr).unwrap_or_else(|e| panic!("eval failed: {e}"))
     }
 
     fn get_type_name(value: &Value) -> &'static str {
@@ -222,8 +222,8 @@ mod tests {
     }
 
     fn assert_incorrect_type_expr(expr: Expr, expected_type: &str) {
-        let env = Env::new();
-        assert_incorrect_type(eval_expr(&env, expr), expected_type);
+        let mut env = Env::new();
+        assert_incorrect_type(eval_expr(&mut env, expr), expected_type);
     }
 
     fn assert_incorrect_operator(result: Result<Value, RuntimeError>, expected: TokenType) {
@@ -235,8 +235,8 @@ mod tests {
     }
 
     fn assert_incorrect_operator_expr(expr: Expr, expected: TokenType) {
-        let env = Env::new();
-        assert_incorrect_operator(eval_expr(&env, expr), expected);
+        let mut env = Env::new();
+        assert_incorrect_operator(eval_expr(&mut env, expr), expected);
     }
 
     fn token(token_type: TokenType) -> Token {
@@ -829,8 +829,8 @@ mod tests {
             #[test]
             fn bare_plus_operator() {
                 let expr = MissingLeftOperand { token: token(Plus) };
-                let env = Env::new();
-                let err = eval_expr(&env, expr).unwrap_err();
+                let mut env = Env::new();
+                let err = eval_expr(&mut env, expr).unwrap_err();
                 assert!(matches!(err, RuntimeError::EvaluationError(_, _)));
             }
 
@@ -839,24 +839,24 @@ mod tests {
                 let expr = MissingLeftOperand {
                     token: token(Minus),
                 };
-                let env = Env::new();
-                let err = eval_expr(&env, expr).unwrap_err();
+                let mut env = Env::new();
+                let err = eval_expr(&mut env, expr).unwrap_err();
                 assert!(matches!(err, RuntimeError::EvaluationError(_, _)));
             }
 
             #[test]
             fn bare_bang_operator() {
                 let expr = MissingLeftOperand { token: token(Bang) };
-                let env = Env::new();
-                let err = eval_expr(&env, expr).unwrap_err();
+                let mut env = Env::new();
+                let err = eval_expr(&mut env, expr).unwrap_err();
                 assert!(matches!(err, RuntimeError::EvaluationError(_, _)));
             }
 
             #[test]
             fn bare_star_operator() {
                 let expr = MissingLeftOperand { token: token(Star) };
-                let env = Env::new();
-                let err = eval_expr(&env, expr).unwrap_err();
+                let mut env = Env::new();
+                let err = eval_expr(&mut env, expr).unwrap_err();
                 assert!(matches!(err, RuntimeError::EvaluationError(_, _)));
             }
         }
@@ -867,8 +867,8 @@ mod tests {
             #[test]
             fn binary_operator_error_message() {
                 let expr = binary(lit_number(1), Bang, lit_number(2));
-                let env = Env::new();
-                let err = eval_expr(&env, expr).unwrap_err();
+                let mut env = Env::new();
+                let err = eval_expr(&mut env, expr).unwrap_err();
                 assert_eq!(
                     err.to_string(),
                     "Incorrect operator `Token { token_type: Bang, lexeme: \"\", line: 1 }`!"
@@ -878,8 +878,8 @@ mod tests {
             #[test]
             fn unary_operator_error_message() {
                 let expr = unary(Plus, lit_number(1));
-                let env = Env::new();
-                let err = eval_expr(&env, expr).unwrap_err();
+                let mut env = Env::new();
+                let err = eval_expr(&mut env, expr).unwrap_err();
                 assert_eq!(
                     err.to_string(),
                     "Incorrect operator `Token { token_type: Plus, lexeme: \"\", line: 1 }`!"
@@ -889,8 +889,8 @@ mod tests {
             #[test]
             fn operator_placeholder_error_message() {
                 let expr = MissingLeftOperand { token: token(Star) };
-                let env = Env::new();
-                let err = eval_expr(&env, expr).unwrap_err();
+                let mut env = Env::new();
+                let err = eval_expr(&mut env, expr).unwrap_err();
                 assert_eq!(
                     err.to_string(),
                     "\"Missing left operand for token  at line 1\""
@@ -1346,7 +1346,7 @@ mod tests {
         use crate::rlox::eval::{RuntimeError, eval_statement};
         use crate::rlox::parser::tests::parse_statement_ok;
 
-        fn eval_ok_with_env(env: &Env, input: &str) -> Value {
+        fn eval_ok_with_env(env: &mut Env, input: &str) -> Value {
             eval_expr(env, parse_ok(input))
                 .unwrap_or_else(|e| panic!("eval failed for {input:?}: {e}"))
         }
@@ -1356,7 +1356,7 @@ mod tests {
             let mut env = Env::new();
             let stmt = parse_statement_ok("var x = 42;");
             eval_statement(&mut env, stmt).unwrap();
-            assert_number(eval_ok_with_env(&env, "x"), 42.0);
+            assert_number(eval_ok_with_env(&mut env, "x"), 42.0);
         }
 
         #[test]
@@ -1364,7 +1364,7 @@ mod tests {
             let mut env = Env::new();
             let stmt = parse_statement_ok("var x;");
             eval_statement(&mut env, stmt).unwrap();
-            assert_nil(eval_ok_with_env(&env, "x"));
+            assert_nil(eval_ok_with_env(&mut env, "x"));
         }
 
         #[test]
@@ -1372,7 +1372,7 @@ mod tests {
             let mut env = Env::new();
             let stmt = parse_statement_ok("var x = 1 + 2 * 3;");
             eval_statement(&mut env, stmt).unwrap();
-            assert_number(eval_ok_with_env(&env, "x"), 7.0);
+            assert_number(eval_ok_with_env(&mut env, "x"), 7.0);
         }
 
         #[test]
@@ -1380,7 +1380,7 @@ mod tests {
             let mut env = Env::new();
             let stmt = parse_statement_ok("var name = \"hello\";");
             eval_statement(&mut env, stmt).unwrap();
-            assert_str(eval_ok_with_env(&env, "name"), "hello");
+            assert_str(eval_ok_with_env(&mut env, "name"), "hello");
         }
 
         #[test]
@@ -1388,45 +1388,45 @@ mod tests {
             let mut env = Env::new();
             eval_statement(&mut env, parse_statement_ok("var a = 1;")).unwrap();
             eval_statement(&mut env, parse_statement_ok("var b = 2;")).unwrap();
-            assert_number(eval_ok_with_env(&env, "a"), 1.0);
-            assert_number(eval_ok_with_env(&env, "b"), 2.0);
+            assert_number(eval_ok_with_env(&mut env, "a"), 1.0);
+            assert_number(eval_ok_with_env(&mut env, "b"), 2.0);
         }
 
         #[test]
         fn identifier_used_in_expression() {
             let mut env = Env::new();
             eval_statement(&mut env, parse_statement_ok("var x = 10;")).unwrap();
-            assert_number(eval_ok_with_env(&env, "x + 5"), 15.0);
-            assert_number(eval_ok_with_env(&env, "x * 2"), 20.0);
-            assert_number(eval_ok_with_env(&env, "x - 3"), 7.0);
-            assert_number(eval_ok_with_env(&env, "x / 2"), 5.0);
+            assert_number(eval_ok_with_env(&mut env, "x + 5"), 15.0);
+            assert_number(eval_ok_with_env(&mut env, "x * 2"), 20.0);
+            assert_number(eval_ok_with_env(&mut env, "x - 3"), 7.0);
+            assert_number(eval_ok_with_env(&mut env, "x / 2"), 5.0);
         }
 
         #[test]
         fn identifier_used_in_comparison() {
             let mut env = Env::new();
             eval_statement(&mut env, parse_statement_ok("var x = 5;")).unwrap();
-            assert_bool(eval_ok_with_env(&env, "x > 3"), true);
-            assert_bool(eval_ok_with_env(&env, "x < 10"), true);
-            assert_bool(eval_ok_with_env(&env, "x == 5"), true);
-            assert_bool(eval_ok_with_env(&env, "x != 6"), true);
+            assert_bool(eval_ok_with_env(&mut env, "x > 3"), true);
+            assert_bool(eval_ok_with_env(&mut env, "x < 10"), true);
+            assert_bool(eval_ok_with_env(&mut env, "x == 5"), true);
+            assert_bool(eval_ok_with_env(&mut env, "x != 6"), true);
         }
 
         #[test]
         fn identifier_used_in_ternary() {
             let mut env = Env::new();
             eval_statement(&mut env, parse_statement_ok("var cond = true;")).unwrap();
-            assert_number(eval_ok_with_env(&env, "cond ? 1 : 2"), 1.0);
+            assert_number(eval_ok_with_env(&mut env, "cond ? 1 : 2"), 1.0);
             eval_statement(&mut env, parse_statement_ok("var cond = false;")).unwrap();
-            assert_number(eval_ok_with_env(&env, "cond ? 1 : 2"), 2.0);
+            assert_number(eval_ok_with_env(&mut env, "cond ? 1 : 2"), 2.0);
         }
 
         #[test]
         fn identifier_used_in_grouping() {
             let mut env = Env::new();
             eval_statement(&mut env, parse_statement_ok("var x = 3;")).unwrap();
-            assert_number(eval_ok_with_env(&env, "(x)"), 3.0);
-            assert_number(eval_ok_with_env(&env, "((x))"), 3.0);
+            assert_number(eval_ok_with_env(&mut env, "(x)"), 3.0);
+            assert_number(eval_ok_with_env(&mut env, "((x))"), 3.0);
         }
 
         #[test]
@@ -1435,21 +1435,21 @@ mod tests {
             eval_statement(&mut env, parse_statement_ok("var a = 1;")).unwrap();
             eval_statement(&mut env, parse_statement_ok("var b = 2;")).unwrap();
             eval_statement(&mut env, parse_statement_ok("var c = 3;")).unwrap();
-            assert_number(eval_ok_with_env(&env, "a + b + c"), 6.0);
-            assert_number(eval_ok_with_env(&env, "a * b * c"), 6.0);
+            assert_number(eval_ok_with_env(&mut env, "a + b + c"), 6.0);
+            assert_number(eval_ok_with_env(&mut env, "a * b * c"), 6.0);
         }
 
         #[test]
         fn identifier_not_found_returns_error() {
-            let env = Env::new();
-            let err = eval_expr(&env, parse_ok("undefined_var")).unwrap_err();
+            let mut env = Env::new();
+            let err = eval_expr(&mut env, parse_ok("undefined_var")).unwrap_err();
             assert!(matches!(err, RuntimeError::IdentifierNotFound(_)));
         }
 
         #[test]
         fn identifier_not_found_error_message() {
-            let env = Env::new();
-            let err = eval_expr(&env, parse_ok("missing")).unwrap_err();
+            let mut env = Env::new();
+            let err = eval_expr(&mut env, parse_ok("missing")).unwrap_err();
             assert_eq!(
                 err.to_string(),
                 "Identifier Token { token_type: Identifier, lexeme: \"missing\", line: 0 } not found!"
@@ -1460,9 +1460,9 @@ mod tests {
         fn redefine_variable() {
             let mut env = Env::new();
             eval_statement(&mut env, parse_statement_ok("var x = 1;")).unwrap();
-            assert_number(eval_ok_with_env(&env, "x"), 1.0);
+            assert_number(eval_ok_with_env(&mut env, "x"), 1.0);
             eval_statement(&mut env, parse_statement_ok("var x = 2;")).unwrap();
-            assert_number(eval_ok_with_env(&env, "x"), 2.0);
+            assert_number(eval_ok_with_env(&mut env, "x"), 2.0);
         }
 
         #[test]
@@ -1471,7 +1471,236 @@ mod tests {
             let mut env = Env::new();
             eval_statement(&mut env, parse_statement_ok("var x = 1;")).unwrap();
             eval_statement(&mut env, parse_statement_ok("var x = 2;")).unwrap();
-            assert_number(eval_ok_with_env(&env, "x"), 2.0);
+            assert_number(eval_ok_with_env(&mut env, "x"), 2.0);
+        }
+
+        mod assignment {
+            use super::*;
+            use crate::rlox::eval::eval_statement;
+            use crate::rlox::parser::tests::parse_statement_ok;
+
+            fn eval_ok_with_env(env: &mut Env, input: &str) -> Value {
+                eval_expr(env, parse_ok(input))
+                    .unwrap_or_else(|e| panic!("eval failed for {input:?}: {e}"))
+            }
+
+            #[test]
+            fn simple_assignment() {
+                let mut env = Env::new();
+                eval_statement(&mut env, parse_statement_ok("var x = 1;")).unwrap();
+                assert_number(eval_ok_with_env(&mut env, "x = 42"), 42.0);
+                assert_number(eval_ok_with_env(&mut env, "x"), 42.0);
+            }
+
+            #[test]
+            fn assignment_with_expression_rhs() {
+                let mut env = Env::new();
+                eval_statement(&mut env, parse_statement_ok("var x = 1;")).unwrap();
+                assert_number(eval_ok_with_env(&mut env, "x = 1 + 2 * 3"), 7.0);
+                assert_number(eval_ok_with_env(&mut env, "x"), 7.0);
+            }
+
+            #[test]
+            fn assignment_with_string() {
+                let mut env = Env::new();
+                eval_statement(&mut env, parse_statement_ok("var x = \"old\";")).unwrap();
+                assert_str(eval_ok_with_env(&mut env, r#"x = "new""#), "new");
+                assert_str(eval_ok_with_env(&mut env, "x"), "new");
+            }
+
+            #[test]
+            fn assignment_with_nil() {
+                let mut env = Env::new();
+                eval_statement(&mut env, parse_statement_ok("var x = 1;")).unwrap();
+                assert_nil(eval_ok_with_env(&mut env, "x = nil"));
+                assert_nil(eval_ok_with_env(&mut env, "x"));
+            }
+
+            #[test]
+            fn assignment_with_unary_rhs() {
+                let mut env = Env::new();
+                eval_statement(&mut env, parse_statement_ok("var x = 1;")).unwrap();
+                assert_number(eval_ok_with_env(&mut env, "x = -5"), -5.0);
+                assert_number(eval_ok_with_env(&mut env, "x"), -5.0);
+            }
+
+            #[test]
+            fn chained_assignment() {
+                let mut env = Env::new();
+                eval_statement(&mut env, parse_statement_ok("var a = 1;")).unwrap();
+                eval_statement(&mut env, parse_statement_ok("var b = 2;")).unwrap();
+                assert_number(eval_ok_with_env(&mut env, "a = b = 3"), 3.0);
+                assert_number(eval_ok_with_env(&mut env, "a"), 3.0);
+                assert_number(eval_ok_with_env(&mut env, "b"), 3.0);
+            }
+
+            #[test]
+            fn chained_assignment_right_associative() {
+                let mut env = Env::new();
+                eval_statement(&mut env, parse_statement_ok("var a = 1;")).unwrap();
+                eval_statement(&mut env, parse_statement_ok("var b = 2;")).unwrap();
+                eval_statement(&mut env, parse_statement_ok("var c = 3;")).unwrap();
+                assert_number(eval_ok_with_env(&mut env, "a = b = c = 4"), 4.0);
+                assert_number(eval_ok_with_env(&mut env, "a"), 4.0);
+                assert_number(eval_ok_with_env(&mut env, "b"), 4.0);
+                assert_number(eval_ok_with_env(&mut env, "c"), 4.0);
+            }
+
+            #[test]
+            fn assignment_in_ternary_then_branch() {
+                let mut env = Env::new();
+                eval_statement(&mut env, parse_statement_ok("var x = 0;")).unwrap();
+                eval_statement(&mut env, parse_statement_ok("var y = 0;")).unwrap();
+                assert_number(eval_ok_with_env(&mut env, "true ? x = 1 : y = 2"), 1.0);
+                assert_number(eval_ok_with_env(&mut env, "x"), 1.0);
+                assert_number(eval_ok_with_env(&mut env, "y"), 0.0);
+            }
+
+            #[test]
+            fn assignment_in_ternary_else_branch() {
+                let mut env = Env::new();
+                eval_statement(&mut env, parse_statement_ok("var x = 0;")).unwrap();
+                eval_statement(&mut env, parse_statement_ok("var y = 0;")).unwrap();
+                assert_number(eval_ok_with_env(&mut env, "false ? x = 1 : y = 2"), 2.0);
+                assert_number(eval_ok_with_env(&mut env, "x"), 0.0);
+                assert_number(eval_ok_with_env(&mut env, "y"), 2.0);
+            }
+
+            #[test]
+            fn assignment_in_grouping() {
+                let mut env = Env::new();
+                eval_statement(&mut env, parse_statement_ok("var x = 0;")).unwrap();
+                assert_number(eval_ok_with_env(&mut env, "(x = 5)"), 5.0);
+                assert_number(eval_ok_with_env(&mut env, "x"), 5.0);
+            }
+
+            #[test]
+            fn assignment_as_expression_statement() {
+                let mut env = Env::new();
+                eval_statement(&mut env, parse_statement_ok("var x = 0;")).unwrap();
+                let stmt = parse_statement_ok("x = 42;");
+                eval_statement(&mut env, stmt).unwrap();
+                assert_number(eval_ok_with_env(&mut env, "x"), 42.0);
+            }
+
+            #[test]
+            fn assignment_with_complex_rhs() {
+                let mut env = Env::new();
+                eval_statement(&mut env, parse_statement_ok("var x = 0;")).unwrap();
+                assert_number(eval_ok_with_env(&mut env, "x = (1 + 2) * 3"), 9.0);
+                assert_number(eval_ok_with_env(&mut env, "x"), 9.0);
+            }
+
+            #[test]
+            fn assignment_returns_rhs_value() {
+                let mut env = Env::new();
+                eval_statement(&mut env, parse_statement_ok("var x = 0;")).unwrap();
+                let result = eval_ok_with_env(&mut env, "x = 99");
+                assert_number(result, 99.0);
+            }
+
+            #[test]
+            fn assignment_with_ternary_rhs() {
+                let mut env = Env::new();
+                eval_statement(&mut env, parse_statement_ok("var x = 0;")).unwrap();
+                eval_statement(&mut env, parse_statement_ok("var cond = true;")).unwrap();
+                assert_number(eval_ok_with_env(&mut env, "x = cond ? 1 : 2"), 1.0);
+                assert_number(eval_ok_with_env(&mut env, "x"), 1.0);
+                eval_statement(&mut env, parse_statement_ok("var cond = false;")).unwrap();
+                assert_number(eval_ok_with_env(&mut env, "x = cond ? 1 : 2"), 2.0);
+                assert_number(eval_ok_with_env(&mut env, "x"), 2.0);
+            }
+
+            #[test]
+            fn assignment_precedence_lower_than_ternary() {
+                let mut env = Env::new();
+                eval_statement(&mut env, parse_statement_ok("var a = 0;")).unwrap();
+                assert_number(eval_ok_with_env(&mut env, "a = true ? 1 : 2"), 1.0);
+                assert_number(eval_ok_with_env(&mut env, "a"), 1.0);
+            }
+        }
+
+        mod nested_environment {
+            use super::*;
+            use crate::rlox::environment::Env;
+            use std::cell::RefCell;
+            use std::rc::Rc;
+
+            #[test]
+            fn nested_env_child_can_read_parent() {
+                let parent = Rc::new(RefCell::new(Env::new()));
+                parent
+                    .borrow_mut()
+                    .define("x".to_string(), Value::Number(10.0));
+                let mut child = Env::from_env(parent.clone());
+                let result = eval_expr(&mut child, parse_ok("x"));
+                assert!(result.is_ok());
+                assert_number(result.unwrap(), 10.0);
+            }
+
+            #[test]
+            fn nested_env_child_can_shadow_parent() {
+                let parent = Rc::new(RefCell::new(Env::new()));
+                parent
+                    .borrow_mut()
+                    .define("x".to_string(), Value::Number(10.0));
+                let mut child = Env::from_env(parent.clone());
+                child.define("x".to_string(), Value::Number(20.0));
+                let result = eval_expr(&mut child, parse_ok("x"));
+                assert!(result.is_ok());
+                assert_number(result.unwrap(), 20.0);
+            }
+
+            #[test]
+            fn nested_env_assignment_updates_parent() {
+                let parent = Rc::new(RefCell::new(Env::new()));
+                parent
+                    .borrow_mut()
+                    .define("x".to_string(), Value::Number(10.0));
+                let mut child = Env::from_env(parent.clone());
+                let _result = eval_expr(&mut child, parse_ok("x = 20"));
+            }
+
+            #[test]
+            fn nested_env_new_assignment_creates_in_child() {
+                let parent = Rc::new(RefCell::new(Env::new()));
+                let mut child = Env::from_env(parent.clone());
+                let _result = eval_expr(&mut child, parse_ok("y = 30"));
+            }
+
+            #[test]
+            fn three_level_nested_env() {
+                let grandparent = Rc::new(RefCell::new(Env::new()));
+                grandparent
+                    .borrow_mut()
+                    .define("a".to_string(), Value::Number(1.0));
+                let parent = Rc::new(RefCell::new(Env::from_env(grandparent.clone())));
+                parent
+                    .borrow_mut()
+                    .define("b".to_string(), Value::Number(2.0));
+                let mut child = Env::from_env(parent.clone());
+                child.define("c".to_string(), Value::Number(3.0));
+                let result_a = eval_expr(&mut child, parse_ok("a"));
+                assert!(result_a.is_ok());
+                assert_number(result_a.unwrap(), 1.0);
+                let result_b = eval_expr(&mut child, parse_ok("b"));
+                assert!(result_b.is_ok());
+                assert_number(result_b.unwrap(), 2.0);
+                let result_c = eval_expr(&mut child, parse_ok("c"));
+                assert!(result_c.is_ok());
+                assert_number(result_c.unwrap(), 3.0);
+            }
+
+            #[test]
+            fn nested_env_assignment_through_levels() {
+                let grandparent = Rc::new(RefCell::new(Env::new()));
+                grandparent
+                    .borrow_mut()
+                    .define("x".to_string(), Value::Number(1.0));
+                let parent = Rc::new(RefCell::new(Env::from_env(grandparent.clone())));
+                let mut child = Env::from_env(parent.clone());
+                let _result = eval_expr(&mut child, parse_ok("x = 100"));
+            }
         }
     }
 }

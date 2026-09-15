@@ -2567,4 +2567,268 @@ pub(crate) mod tests {
             assert!(result.is_err());
         }
     }
+
+    mod assignment {
+        use super::*;
+
+        pub(crate) fn as_assignment(expr: &Expr) -> (&Token, &Expr) {
+            match expr {
+                Expr::AssignmentExpression { left, right } => (left, right),
+                other => panic!("expected assignment expression, got {other:?}"),
+            }
+        }
+
+        #[test]
+        fn parses_simple_assignment() {
+            parsed!("x = 1", |expr| {
+                let (left, right) = as_assignment(&expr);
+                assert_eq!(left.lexeme, "x");
+                assert_eq!(as_number(right), 1);
+            });
+        }
+
+        #[test]
+        fn parses_assignment_with_expression() {
+            parsed!("x = 1 + 2", |expr| {
+                let (left, right) = as_assignment(&expr);
+                assert_eq!(left.lexeme, "x");
+                let (_, op, _) = as_binary(right);
+                assert_eq!(op, Plus);
+            });
+        }
+
+        #[test]
+        fn parses_assignment_with_ternary() {
+            parsed!("x = true ? 1 : 2", |expr| {
+                let (left, right) = as_assignment(&expr);
+                assert_eq!(left.lexeme, "x");
+                let (cond, then_branch, else_branch) = as_ternary(right);
+                assert!(matches!(cond, Expr::SyntaxLiteral(Literal::True)));
+                assert_eq!(as_number(then_branch), 1);
+                assert_eq!(as_number(else_branch), 2);
+            });
+        }
+
+        #[test]
+        fn parses_chained_assignment() {
+            parsed!("x = y = 1", |expr| {
+                let (left, right) = as_assignment(&expr);
+                assert_eq!(left.lexeme, "x");
+                let (inner_left, inner_right) = as_assignment(right);
+                assert_eq!(inner_left.lexeme, "y");
+                assert_eq!(as_number(inner_right), 1);
+            });
+        }
+
+        #[test]
+        fn parses_chained_assignment_right_associative() {
+            // x = y = 1 should parse as x = (y = 1)
+            parsed!("x = y = 1", |expr| {
+                let (left, right) = as_assignment(&expr);
+                assert_eq!(left.lexeme, "x");
+                let (inner_left, inner_right) = as_assignment(right);
+                assert_eq!(inner_left.lexeme, "y");
+                assert_eq!(as_number(inner_right), 1);
+            });
+        }
+
+        #[test]
+        fn parses_assignment_in_grouping() {
+            parsed!("(x = 1)", |expr| {
+                let inner = as_grouping(&expr);
+                let (left, right) = as_assignment(inner);
+                assert_eq!(left.lexeme, "x");
+                assert_eq!(as_number(right), 1);
+            });
+        }
+
+        #[test]
+        fn parses_assignment_as_expression_statement() {
+            let input = "x = 1;";
+            let scanner = Scanner::new(input.lines());
+            let mut parser = Parser::new(scanner);
+            let result = parser.parse_statements();
+            assert!(result.is_ok());
+            if let Statement::ExprStatement(expr) = result.unwrap() {
+                let (left, right) = as_assignment(&expr);
+                assert_eq!(left.lexeme, "x");
+                assert_eq!(as_number(right), 1);
+            } else {
+                panic!("expected ExprStatement");
+            }
+        }
+
+        #[test]
+        fn parses_multiple_assignments_in_statement() {
+            let input = "x = 1; y = 2;";
+            let scanner = Scanner::new(input.lines());
+            let mut parser = Parser::new(scanner);
+
+            let stmt1 = parser.parse_statements().unwrap();
+            if let Statement::ExprStatement(expr) = stmt1 {
+                let (left, right) = as_assignment(&expr);
+                assert_eq!(left.lexeme, "x");
+                assert_eq!(as_number(right), 1);
+            }
+
+            let stmt2 = parser.parse_statements().unwrap();
+            if let Statement::ExprStatement(expr) = stmt2 {
+                let (left, right) = as_assignment(&expr);
+                assert_eq!(left.lexeme, "y");
+                assert_eq!(as_number(right), 2);
+            }
+        }
+
+        #[test]
+        fn assignment_has_lower_precedence_than_comma() {
+            // a = 1, 2 should parse as (a = 1), 2
+            parsed!("a = 1, 2", |expr| {
+                let (left, op, right) = as_binary(&expr);
+                assert_eq!(op, Comma);
+                assert_eq!(as_number(right), 2);
+                let (assign_left, assign_right) = as_assignment(left);
+                assert_eq!(assign_left.lexeme, "a");
+                assert_eq!(as_number(assign_right), 1);
+            });
+        }
+
+        #[test]
+        fn assignment_has_lower_precedence_than_ternary() {
+            // a = true ? 1 : 2 should parse as a = (true ? 1 : 2)
+            parsed!("a = true ? 1 : 2", |expr| {
+                let (left, right) = as_assignment(&expr);
+                assert_eq!(left.lexeme, "a");
+                let (cond, then_branch, else_branch) = as_ternary(right);
+                assert!(matches!(cond, Expr::SyntaxLiteral(Literal::True)));
+                assert_eq!(as_number(then_branch), 1);
+                assert_eq!(as_number(else_branch), 2);
+            });
+        }
+
+        #[test]
+        fn rejects_assignment_to_non_identifier() {
+            parse_expression_fails("1 = 2");
+            parse_expression_fails("true = false");
+            parse_expression_fails("nil = 1");
+            parse_expression_fails("\"str\" = 1");
+        }
+
+        #[test]
+        fn rejects_assignment_to_grouping() {
+            parse_expression_fails("(x) = 1");
+        }
+
+        #[test]
+        fn rejects_assignment_to_binary() {
+            parse_expression_fails("x + y = 1");
+        }
+
+        #[test]
+        fn rejects_assignment_to_unary() {
+            parse_expression_fails("-x = 1");
+        }
+
+        #[test]
+        fn parses_complex_assignment_chain() {
+            // a = b = c = 1
+            parsed!("a = b = c = 1", |expr| {
+                let (left, right) = as_assignment(&expr);
+                assert_eq!(left.lexeme, "a");
+                let (left, right) = as_assignment(right);
+                assert_eq!(left.lexeme, "b");
+                let (left, right) = as_assignment(right);
+                assert_eq!(left.lexeme, "c");
+                assert_eq!(as_number(right), 1);
+            });
+        }
+
+        #[test]
+        fn parses_assignment_with_complex_rhs() {
+            // x = (1 + 2) * 3
+            parsed!("x = (1 + 2) * 3", |expr| {
+                let (left, right) = as_assignment(&expr);
+                assert_eq!(left.lexeme, "x");
+                let (inner_left, op, inner_right) = as_binary(right);
+                assert_eq!(op, Star);
+                let grouped = as_grouping(inner_left);
+                let (_, add_op, _) = as_binary(grouped);
+                assert_eq!(add_op, Plus);
+            });
+        }
+
+        #[test]
+        fn parses_assignment_in_ternary_then_branch() {
+            parsed!("true ? x = 1 : y = 2", |expr| {
+                let (cond, then_branch, else_branch) = as_ternary(&expr);
+                assert!(matches!(cond, Expr::SyntaxLiteral(Literal::True)));
+                let (left, right) = as_assignment(then_branch);
+                assert_eq!(left.lexeme, "x");
+                assert_eq!(as_number(right), 1);
+                let (left, right) = as_assignment(else_branch);
+                assert_eq!(left.lexeme, "y");
+                assert_eq!(as_number(right), 2);
+            });
+        }
+
+        #[test]
+        fn parses_assignment_in_ternary_else_branch() {
+            parsed!("false ? 1 : x = 2", |expr| {
+                let (_, _, else_branch) = as_ternary(&expr);
+                let (left, right) = as_assignment(else_branch);
+                assert_eq!(left.lexeme, "x");
+                assert_eq!(as_number(right), 2);
+            });
+        }
+
+        #[test]
+        fn parses_assignment_with_unary_rhs() {
+            parsed!("x = -1", |expr| {
+                let (left, right) = as_assignment(&expr);
+                assert_eq!(left.lexeme, "x");
+                let (unary_op, inner) = as_unary(right);
+                assert_eq!(unary_op, Minus);
+                assert_eq!(as_number(inner), 1);
+            });
+        }
+
+        #[test]
+        fn parses_assignment_with_string() {
+            parsed!(r#"x = "hello""#, |expr| {
+                let (left, right) = as_assignment(&expr);
+                assert_eq!(left.lexeme, "x");
+                assert_eq!(as_string(right), "hello");
+            });
+        }
+
+        #[test]
+        fn parses_assignment_with_nil() {
+            parsed!("x = nil", |expr| {
+                let (left, right) = as_assignment(&expr);
+                assert_eq!(left.lexeme, "x");
+                assert!(matches!(right, Expr::SyntaxLiteral(Literal::Nil)));
+            });
+        }
+
+        #[test]
+        fn assignment_expression_returns_rhs_value() {
+            // Assignment is an expression that evaluates to the RHS value
+            parsed!("x = 1", |expr| {
+                let (_, right) = as_assignment(&expr);
+                assert_eq!(as_number(right), 1);
+            });
+        }
+
+        #[test]
+        fn assignment_is_right_associative_in_complex_expr() {
+            // a = b = 1 + 2 should be a = (b = (1 + 2))
+            parsed!("a = b = 1 + 2", |expr| {
+                let (left, right) = as_assignment(&expr);
+                assert_eq!(left.lexeme, "a");
+                let (left, right) = as_assignment(right);
+                assert_eq!(left.lexeme, "b");
+                let (_, op, _) = as_binary(right);
+                assert_eq!(op, Plus);
+            });
+        }
+    }
 }
