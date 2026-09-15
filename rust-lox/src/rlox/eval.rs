@@ -160,7 +160,7 @@ pub fn eval_expr(env: &mut Env, exp: Expr) -> Result<Value, RuntimeError> {
         }
         Expr::IdentifierExpression(token) => {
             if let Some(identifier_value) = env.get(&token.lexeme) {
-                Ok(identifier_value.clone())
+                Ok(identifier_value)
             } else {
                 Err(RuntimeError::IdentifierNotFound(token))
             }

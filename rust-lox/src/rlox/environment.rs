@@ -26,13 +26,23 @@ impl Env {
         self.names.insert(name.to_string(), value);
     }
 
-    pub fn get(&self, name: &str) -> Option<&Value> {
-        self.names.get(name)
+    pub fn get(&self, name: &str) -> Option<Value> {
+        let cur_value = self.names.get(name);
+        if cur_value.is_some() {
+            cur_value.cloned()
+        } else {
+            match &self.parent_env {
+                Some(env) => env.borrow().get(name),
+                None => None,
+            }
+        }
     }
 
     pub fn assign(&mut self, name: &str, value: Value) -> bool {
         if self.names.contains_key(name) {
             self.names.insert(name.to_string(), value).is_some()
+        } else if let Some(env) = &self.parent_env {
+            env.borrow_mut().assign(name, value)
         } else {
             false
         }
