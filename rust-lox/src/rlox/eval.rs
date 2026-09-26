@@ -93,9 +93,9 @@ pub fn eval_expr(env: &EnvRef, exp: Expr) -> Result<Value, RuntimeError> {
 
             let target = Env::resolve(env, lexeme_value);
             match target {
-                Some(env) => {
-                    let r_value = eval_expr(&env, *right)?;
-                    Env::assign_local(&env, lexeme_value, r_value.clone());
+                Some(target_env) => {
+                    let r_value = eval_expr(env, *right)?;
+                    Env::assign_local(&target_env, lexeme_value, r_value.clone());
                     Ok(r_value)
                 }
                 None => Err(RuntimeError::EvaluationError(

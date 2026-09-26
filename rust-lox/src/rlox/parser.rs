@@ -83,9 +83,7 @@ impl<'src> Parser<'src> {
         let next_token = self.peek()?;
         {
             match next_token.token_type {
-                LeftBrace => {
-                    todo!()
-                }
+                LeftBrace => self.parse_block(),
                 Var => self.parse_declarations(),
                 Print => self.print_statement(),
                 _ => self.expr_statement(),
@@ -94,6 +92,18 @@ impl<'src> Parser<'src> {
         .inspect_err(|_| {
             let _ = self.synchronize();
         })
+    }
+
+    pub fn parse_block(&mut self) -> Result<Statement, RloxError> {
+        self.advance()?;
+        let mut res: Vec<Statement> = Vec::new();
+        let token_match = [RightBrace, EOF];
+        while !self.match_any(&token_match) {
+            let next_stmtn = self.parse_statements()?;
+            res.push(next_stmtn);
+        }
+        self.consume(&RightBrace, "Expected } at the end of a block!")?;
+        Ok(Statement::BlockStatement(res))
     }
 
     fn parse_declarations(&mut self) -> Result<Statement, RloxError> {
