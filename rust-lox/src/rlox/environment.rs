@@ -29,6 +29,22 @@ impl Env {
         env.borrow_mut().names.insert(name, value);
     }
 
+    pub fn resolve(env_ref: &EnvRef, name: &str) -> Option<EnvRef> {
+        let parent = {
+            let env = env_ref.borrow();
+
+            if env.names.contains_key(name) {
+                return Some(env_ref.clone());
+            }
+            env.parent_env.clone()
+        };
+        parent.and_then(|parent| Self::resolve(&parent, name))
+    }
+
+    pub fn assign_local(env_ref: &EnvRef, name: &str, value: Value) {
+        env_ref.borrow_mut().names.insert(name.to_string(), value);
+    }
+
     pub fn get(env_ref: &EnvRef, name: &str) -> Option<Value> {
         let parent = {
             let env = env_ref.borrow();

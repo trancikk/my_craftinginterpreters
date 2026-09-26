@@ -87,13 +87,15 @@ pub fn eval_expr(env: &EnvRef, exp: Expr) -> Result<Value, RuntimeError> {
             Nil => Value::Nil,
             StringL(value) => Value::Str(value),
         }),
+
         Expr::AssignmentExpression { left, right } => {
             let lexeme_value = &left.lexeme;
-            let variable = Env::get(env, lexeme_value);
-            match variable {
-                Some(_) => {
-                    let r_value = eval_expr(env, *right)?;
-                    Env::assign(env, lexeme_value, r_value.clone());
+
+            let target = Env::resolve(env, lexeme_value);
+            match target {
+                Some(env) => {
+                    let r_value = eval_expr(&env, *right)?;
+                    Env::assign_local(&env, lexeme_value, r_value.clone());
                     Ok(r_value)
                 }
                 None => Err(RuntimeError::EvaluationError(
@@ -101,9 +103,8 @@ pub fn eval_expr(env: &EnvRef, exp: Expr) -> Result<Value, RuntimeError> {
                     left,
                 )),
             }
-
-            // TODO add error when variable doesn't exist
         }
+
         Expr::Binary { left, op, right } => {
             let left_value = eval_expr(env, *left)?;
             let right_value = eval_expr(env, *right)?;
@@ -1363,7 +1364,7 @@ mod tests {
         use crate::rlox::eval::{RuntimeError, eval_statement};
         use crate::rlox::parser::tests::parse_statement_ok;
 
-        fn eval_ok_with_env(env: &mut Env, input: &str) -> Value {
+        fn eval_ok_with_env(env: &EnvRef, input: &str) -> Value {
             eval_expr(env, parse_ok(input))
                 .unwrap_or_else(|e| panic!("eval failed for {input:?}: {e}"))
         }
@@ -1496,7 +1497,7 @@ mod tests {
             use crate::rlox::eval::eval_statement;
             use crate::rlox::parser::tests::parse_statement_ok;
 
-            fn eval_ok_with_env(env: &mut Env, input: &str) -> Value {
+            fn eval_ok_with_env(env: &EnvRef, input: &str) -> Value {
                 eval_expr(env, parse_ok(input))
                     .unwrap_or_else(|e| panic!("eval failed for {input:?}: {e}"))
             }
@@ -1639,84 +1640,196 @@ mod tests {
 
         mod nested_environment {
             use super::*;
-            use crate::rlox::environment::Env;
-            use std::cell::RefCell;
-            use std::rc::Rc;
 
             #[test]
             fn nested_env_child_can_read_parent() {
-                let parent = Rc::new(RefCell::new(Env::new()));
-                parent
-                    .borrow_mut()
-                    .define("x".to_string(), Value::Number(10.0));
-                let mut child = Env::from_env(parent.clone());
-                let result = eval_expr(&mut child, parse_ok("x"));
-                assert!(result.is_ok());
-                assert_number(result.unwrap(), 10.0);
+                let parent = Env::new();
+                Env::define(&parent, "x".to_string(), Value::Number(10.0));
+                let child = Env::from_env(&parent);
+
+                assert_number(eval_expr(&child, parse_ok("x")).unwrap(), 10.0);
             }
 
             #[test]
             fn nested_env_child_can_shadow_parent() {
-                let parent = Rc::new(RefCell::new(Env::new()));
-                parent
-                    .borrow_mut()
-                    .define("x".to_string(), Value::Number(10.0));
-                let mut child = Env::from_env(parent.clone());
-                child.define("x".to_string(), Value::Number(20.0));
-                let result = eval_expr(&mut child, parse_ok("x"));
-                assert!(result.is_ok());
-                assert_number(result.unwrap(), 20.0);
+                let parent = Env::new();
+                Env::define(&parent, "x".to_string(), Value::Number(10.0));
+                let child = Env::from_env(&parent);
+                Env::define(&child, "x".to_string(), Value::Number(20.0));
+
+                assert_number(eval_expr(&child, parse_ok("x")).unwrap(), 20.0);
+                assert_number(eval_expr(&parent, parse_ok("x")).unwrap(), 10.0);
             }
 
             #[test]
             fn nested_env_assignment_updates_parent() {
-                let parent = Rc::new(RefCell::new(Env::new()));
-                parent
-                    .borrow_mut()
-                    .define("x".to_string(), Value::Number(10.0));
-                let mut child = Env::from_env(parent.clone());
-                let _result = eval_expr(&mut child, parse_ok("x = 20"));
+                let parent = Env::new();
+                Env::define(&parent, "x".to_string(), Value::Number(10.0));
+                let child = Env::from_env(&parent);
+
+                assert_number(eval_expr(&child, parse_ok("x = 20")).unwrap(), 20.0);
+                assert_number(eval_expr(&parent, parse_ok("x")).unwrap(), 20.0);
             }
 
             #[test]
-            fn nested_env_new_assignment_creates_in_child() {
-                let parent = Rc::new(RefCell::new(Env::new()));
-                let mut child = Env::from_env(parent.clone());
-                let _result = eval_expr(&mut child, parse_ok("y = 30"));
+            fn nested_env_assignment_to_undefined_name_returns_error() {
+                let parent = Env::new();
+                let child = Env::from_env(&parent);
+
+                let result = eval_expr(&child, parse_ok("y = 30"));
+
+                assert!(matches!(result, Err(RuntimeError::EvaluationError(_, _))));
+                assert_eq!(Env::get(&child, "y"), None);
+                assert_eq!(Env::get(&parent, "y"), None);
             }
 
             #[test]
             fn three_level_nested_env() {
-                let grandparent = Rc::new(RefCell::new(Env::new()));
-                grandparent
-                    .borrow_mut()
-                    .define("a".to_string(), Value::Number(1.0));
-                let parent = Rc::new(RefCell::new(Env::from_env(grandparent.clone())));
-                parent
-                    .borrow_mut()
-                    .define("b".to_string(), Value::Number(2.0));
-                let mut child = Env::from_env(parent.clone());
-                child.define("c".to_string(), Value::Number(3.0));
-                let result_a = eval_expr(&mut child, parse_ok("a"));
-                assert!(result_a.is_ok());
-                assert_number(result_a.unwrap(), 1.0);
-                let result_b = eval_expr(&mut child, parse_ok("b"));
-                assert!(result_b.is_ok());
-                assert_number(result_b.unwrap(), 2.0);
-                let result_c = eval_expr(&mut child, parse_ok("c"));
-                assert!(result_c.is_ok());
-                assert_number(result_c.unwrap(), 3.0);
+                let grandparent = Env::new();
+                Env::define(&grandparent, "a".to_string(), Value::Number(1.0));
+                let parent = Env::from_env(&grandparent);
+                Env::define(&parent, "b".to_string(), Value::Number(2.0));
+                let child = Env::from_env(&parent);
+                Env::define(&child, "c".to_string(), Value::Number(3.0));
+
+                assert_number(eval_expr(&child, parse_ok("a")).unwrap(), 1.0);
+                assert_number(eval_expr(&child, parse_ok("b")).unwrap(), 2.0);
+                assert_number(eval_expr(&child, parse_ok("c")).unwrap(), 3.0);
             }
 
             #[test]
             fn nested_env_assignment_through_levels() {
-                let grandparent = Rc::new(RefCell::new(Env::new()));
-                grandparent
-                    .borrow_mut()
-                    .define("x".to_string(), Value::Number(1.0));
-                let parent = Rc::new(RefCell::new(Env::from_env(grandparent.clone())));
-                let mut child = Env::from_env(parent.clone());
-                let _result = eval_expr(&mut child, parse_ok("x = 100"));
+                let grandparent = Env::new();
+                Env::define(&grandparent, "x".to_string(), Value::Number(1.0));
+                let parent = Env::from_env(&grandparent);
+                let child = Env::from_env(&parent);
+
+                assert_number(eval_expr(&child, parse_ok("x = 100")).unwrap(), 100.0);
+                assert_number(eval_expr(&grandparent, parse_ok("x")).unwrap(), 100.0);
+            }
+
+            #[test]
+            fn nested_env_assignment_updates_nearest_binding() {
+                let grandparent = Env::new();
+                Env::define(&grandparent, "x".to_string(), Value::Number(1.0));
+                let parent = Env::from_env(&grandparent);
+                Env::define(&parent, "x".to_string(), Value::Number(2.0));
+                let child = Env::from_env(&parent);
+
+                assert_number(eval_expr(&child, parse_ok("x = 3")).unwrap(), 3.0);
+                assert_number(eval_expr(&parent, parse_ok("x")).unwrap(), 3.0);
+                assert_number(eval_expr(&grandparent, parse_ok("x")).unwrap(), 1.0);
+            }
+        }
+
+        mod block_environment {
+            use super::*;
+
+            #[test]
+            fn block_local_does_not_escape() {
+                let env = Env::new();
+                let block = Statement::BlockStatement(vec![parse_statement_ok("var local = 1;")]);
+
+                eval_statement(&env, block).unwrap();
+
+                assert_eq!(Env::get(&env, "local"), None);
+            }
+
+            #[test]
+            fn block_can_read_parent_binding() {
+                let env = Env::new();
+                Env::define(&env, "outer".to_string(), Value::Number(1.0));
+                let block = Statement::BlockStatement(vec![parse_statement_ok("outer;")]);
+
+                eval_statement(&env, block).unwrap();
+            }
+
+            #[test]
+            fn assignment_in_block_updates_outer_binding() {
+                let env = Env::new();
+                Env::define(&env, "x".to_string(), Value::Number(1.0));
+                let block = Statement::BlockStatement(vec![parse_statement_ok("x = 2;")]);
+
+                eval_statement(&env, block).unwrap();
+
+                assert_eq!(Env::get(&env, "x"), Some(Value::Number(2.0)));
+            }
+
+            #[test]
+            fn block_shadowing_preserves_outer_binding() {
+                let env = Env::new();
+                Env::define(&env, "x".to_string(), Value::Number(1.0));
+                let block = Statement::BlockStatement(vec![
+                    parse_statement_ok("var x = 2;"),
+                    parse_statement_ok("x = 3;"),
+                ]);
+
+                eval_statement(&env, block).unwrap();
+
+                assert_eq!(Env::get(&env, "x"), Some(Value::Number(1.0)));
+            }
+
+            #[test]
+            fn nested_block_assignment_updates_nearest_binding() {
+                let env = Env::new();
+                Env::define(&env, "x".to_string(), Value::Number(1.0));
+                Env::define(&env, "observed".to_string(), Value::Nil);
+                let inner = Statement::BlockStatement(vec![parse_statement_ok("x = 3;")]);
+                let outer = Statement::BlockStatement(vec![
+                    parse_statement_ok("var x = 2;"),
+                    inner,
+                    parse_statement_ok("observed = x;"),
+                ]);
+
+                eval_statement(&env, outer).unwrap();
+
+                assert_eq!(Env::get(&env, "x"), Some(Value::Number(1.0)));
+                assert_eq!(Env::get(&env, "observed"), Some(Value::Number(3.0)));
+            }
+
+            #[test]
+            fn parsed_block_creates_nested_scope() {
+                let env = Env::new();
+                Env::define(&env, "x".to_string(), Value::Number(1.0));
+
+                eval_statement(&env, parse_statement_ok("{ var x = 2; x = 3; }")).unwrap();
+
+                assert_eq!(Env::get(&env, "x"), Some(Value::Number(1.0)));
+            }
+
+            #[test]
+            fn parsed_block_local_does_not_escape() {
+                let env = Env::new();
+
+                eval_statement(&env, parse_statement_ok("{ var local = 1; }")).unwrap();
+
+                assert_eq!(Env::get(&env, "local"), None);
+            }
+
+            #[test]
+            fn parsed_block_assignment_updates_outer_binding() {
+                let env = Env::new();
+                Env::define(&env, "x".to_string(), Value::Number(1.0));
+
+                eval_statement(&env, parse_statement_ok("{ x = 2; }")).unwrap();
+
+                assert_eq!(Env::get(&env, "x"), Some(Value::Number(2.0)));
+            }
+
+            #[test]
+            fn parsed_nested_block_assignment_updates_nearest_binding() {
+                let env = Env::new();
+                Env::define(&env, "x".to_string(), Value::Number(1.0));
+                Env::define(&env, "observed".to_string(), Value::Nil);
+
+                eval_statement(
+                    &env,
+                    parse_statement_ok("{ var x = 2; { x = 3; } observed = x; }"),
+                )
+                .unwrap();
+
+                assert_eq!(Env::get(&env, "x"), Some(Value::Number(1.0)));
+                assert_eq!(Env::get(&env, "observed"), Some(Value::Number(3.0)));
             }
         }
     }
