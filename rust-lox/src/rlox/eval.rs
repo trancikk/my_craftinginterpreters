@@ -1,4 +1,4 @@
-use crate::rlox::environment::Env;
+use crate::rlox::environment::{Env, EnvRef};
 use crate::rlox::eval::RuntimeError::{IncorrectOperator, IncorrectType};
 use crate::rlox::parser::{
     Expr,
@@ -51,14 +51,20 @@ fn is_equal(value1: &Value, value2: &Value) -> bool {
     value1 == value2
 }
 
-pub fn eval_statement(env: &mut Env, statement: Statement) -> Result<(), RuntimeError> {
+pub fn eval_statement(env: &EnvRef, statement: Statement) -> Result<(), RuntimeError> {
     match statement {
+        Statement::BlockStatement(statements) => {
+            let nested_env = Env::from_env(env);
+            for statement in statements {
+                eval_statement(&nested_env, statement)?
+            }
+        }
         Statement::DeclarationStatement(name, expr) => {
             let initial_value = match expr {
                 Some(expr) => eval_expr(env, expr)?,
                 None => Value::Nil,
             };
-            env.define(name, initial_value)
+            env.borrow_mut().define(name, initial_value)
         }
         Statement::ExprStatement(expr) => {
             eval_expr(env, expr)?;
@@ -71,7 +77,7 @@ pub fn eval_statement(env: &mut Env, statement: Statement) -> Result<(), Runtime
     Ok(())
 }
 
-pub fn eval_expr(env: &mut Env, exp: Expr) -> Result<Value, RuntimeError> {
+pub fn eval_expr(env: &EnvRef, exp: Expr) -> Result<Value, RuntimeError> {
     match exp {
         Expr::SyntaxLiteral(literal) => Ok(match literal {
             Number(value) => Value::Number(value as f64),
@@ -83,14 +89,17 @@ pub fn eval_expr(env: &mut Env, exp: Expr) -> Result<Value, RuntimeError> {
         }),
         Expr::AssignmentExpression { left, right } => {
             let lexeme_value = &left.lexeme;
-            let variable = env.get(lexeme_value);
+            let variable = env.borrow().get(lexeme_value);
             match variable {
                 Some(_) => {
                     let r_value = eval_expr(env, *right)?;
-                    env.assign(lexeme_value, r_value.clone());
+                    env.borrow_mut().assign(lexeme_value, r_value.clone());
                     Ok(r_value)
                 }
-                None => Err(RuntimeError::EvaluationError(format!("Variable {lexeme_value} doesn't exist"), left))
+                None => Err(RuntimeError::EvaluationError(
+                    format!("Variable {lexeme_value} doesn't exist"),
+                    left,
+                )),
             }
 
             // TODO add error when variable doesn't exist
@@ -167,7 +176,7 @@ pub fn eval_expr(env: &mut Env, exp: Expr) -> Result<Value, RuntimeError> {
             Err(RuntimeError::EvaluationError(msg, token))
         }
         Expr::IdentifierExpression(token) => {
-            if let Some(identifier_value) = env.get(&token.lexeme) {
+            if let Some(identifier_value) = env.borrow().get(&token.lexeme) {
                 Ok(identifier_value)
             } else {
                 Err(RuntimeError::IdentifierNotFound(token))

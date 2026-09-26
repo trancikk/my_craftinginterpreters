@@ -8,19 +8,21 @@ pub struct Env {
     parent_env: Option<Rc<RefCell<Env>>>,
 }
 
+pub type EnvRef = Rc<RefCell<Env>>;
+
 impl Env {
-    pub fn new() -> Env {
-        Env {
+    pub fn new() -> EnvRef {
+        Rc::new(RefCell::new(Env {
             names: HashMap::new(),
             parent_env: None,
-        }
+        }))
     }
 
-    pub fn from_env(env: Rc<RefCell<Env>>) -> Env {
-        Env {
+    pub fn from_env(env: &EnvRef) -> EnvRef {
+        Rc::new(RefCell::new(Env {
             names: HashMap::new(),
-            parent_env: Some(env),
-        }
+            parent_env: Some(Rc::clone(env)),
+        }))
     }
     pub fn define(&mut self, name: String, value: Value) {
         self.names.insert(name, value);

@@ -1,4 +1,4 @@
-use crate::rlox::environment::Env;
+use crate::rlox::environment::{Env, EnvRef};
 use crate::rlox::eval::{RuntimeError, eval_statement};
 use crate::rlox::parser::{Parser, Statement};
 use crate::rlox::scanner::Scanner;
@@ -11,7 +11,7 @@ use thiserror::Error;
 
 pub struct RLox {
     pub had_error: bool,
-    env: Env,
+    env: EnvRef,
 }
 
 // TODO add RuntimeError, use it in report error method
@@ -108,7 +108,7 @@ impl RLox {
     }
 
     pub fn interpret(&mut self, statement: Statement) {
-        let result = eval_statement(&mut self.env, statement);
+        let result = eval_statement(&self.env, statement);
         match result {
             // Ok(value) => println!("{value:?}"),
             Ok(_) => {}

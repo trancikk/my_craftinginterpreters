@@ -27,6 +27,7 @@ pub enum Statement {
     Print(Expr),
     ExprStatement(Expr),
     DeclarationStatement(String, Option<Expr>),
+    BlockStatement(Vec<Statement>),
 }
 
 #[derive(Debug)]
