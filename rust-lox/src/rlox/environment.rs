@@ -1,11 +1,12 @@
 use crate::rlox::eval::Value;
+use crate::rlox::parser::Literal::True;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
 pub struct Env {
-    names: HashMap<String, Value>,
-    parent_env: Option<Rc<RefCell<Env>>>,
+    pub(in crate::rlox::environment) names: HashMap<String, Value>,
+    pub(in crate::rlox::environment) parent_env: Option<Rc<RefCell<Env>>>,
 }
 
 pub type EnvRef = Rc<RefCell<Env>>;
@@ -24,29 +25,46 @@ impl Env {
             parent_env: Some(Rc::clone(env)),
         }))
     }
-    pub fn define(&mut self, name: String, value: Value) {
-        self.names.insert(name, value);
+    pub fn define(env: &EnvRef, name: String, value: Value) {
+        env.borrow_mut().names.insert(name, value);
     }
 
-    pub fn get(&self, name: &str) -> Option<Value> {
-        let cur_value = self.names.get(name);
-        if cur_value.is_some() {
-            cur_value.cloned()
-        } else {
-            match &self.parent_env {
-                Some(env) => env.borrow().get(name),
-                None => None,
+    pub fn get(env_ref: &EnvRef, name: &str) -> Option<Value> {
+        let parent = {
+            let env = env_ref.borrow();
+
+            if let Some(value) = env.names.get(name) {
+                return Some(value.clone());
             }
-        }
+            env.parent_env.clone()
+        };
+        parent.and_then(|parent| Self::get(&parent, name))
+        // let env = env.borrow();
+        // let cur_value = env.names.get(name);
+        // if cur_value.is_some() {
+        //     cur_value.cloned()
+        // } else {
+        //     match env.parent_env {
+        //         Some(env) => Env::get(&env, name),
+        //         None => None,
+        //     }
+        // }
     }
 
-    pub fn assign(&mut self, name: &str, value: Value) -> bool {
-        if self.names.contains_key(name) {
-            self.names.insert(name.to_string(), value).is_some()
-        } else if let Some(env) = &self.parent_env {
-            env.borrow_mut().assign(name, value)
-        } else {
-            false
+    pub fn assign(env_ref: &EnvRef, name: &str, value: Value) -> bool {
+        let parent = {
+            let mut env = env_ref.borrow_mut();
+
+            if let Some(current_value) = env.names.get_mut(name) {
+                *current_value = value;
+                return true;
+            }
+            env.parent_env.clone()
+        };
+
+        match parent {
+            Some(parent) => Self::assign(&parent, name, value),
+            None => false,
         }
     }
 }

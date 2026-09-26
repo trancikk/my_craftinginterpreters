@@ -64,7 +64,7 @@ pub fn eval_statement(env: &EnvRef, statement: Statement) -> Result<(), RuntimeE
                 Some(expr) => eval_expr(env, expr)?,
                 None => Value::Nil,
             };
-            env.borrow_mut().define(name, initial_value)
+            Env::define(env, name, initial_value)
         }
         Statement::ExprStatement(expr) => {
             eval_expr(env, expr)?;
@@ -89,11 +89,11 @@ pub fn eval_expr(env: &EnvRef, exp: Expr) -> Result<Value, RuntimeError> {
         }),
         Expr::AssignmentExpression { left, right } => {
             let lexeme_value = &left.lexeme;
-            let variable = env.borrow().get(lexeme_value);
+            let variable = Env::get(env, lexeme_value);
             match variable {
                 Some(_) => {
                     let r_value = eval_expr(env, *right)?;
-                    env.borrow_mut().assign(lexeme_value, r_value.clone());
+                    Env::assign(env, lexeme_value, r_value.clone());
                     Ok(r_value)
                 }
                 None => Err(RuntimeError::EvaluationError(
@@ -176,7 +176,7 @@ pub fn eval_expr(env: &EnvRef, exp: Expr) -> Result<Value, RuntimeError> {
             Err(RuntimeError::EvaluationError(msg, token))
         }
         Expr::IdentifierExpression(token) => {
-            if let Some(identifier_value) = env.borrow().get(&token.lexeme) {
+            if let Some(identifier_value) = Env::get(env, &token.lexeme) {
                 Ok(identifier_value)
             } else {
                 Err(RuntimeError::IdentifierNotFound(token))
