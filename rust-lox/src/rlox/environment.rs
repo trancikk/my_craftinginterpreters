@@ -23,7 +23,7 @@ impl Env {
         }
     }
     pub fn define(&mut self, name: String, value: Value) {
-        self.names.insert(name.to_string(), value);
+        self.names.insert(name, value);
     }
 
     pub fn get(&self, name: &str) -> Option<Value> {

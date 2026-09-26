@@ -82,9 +82,17 @@ pub fn eval_expr(env: &mut Env, exp: Expr) -> Result<Value, RuntimeError> {
             StringL(value) => Value::Str(value),
         }),
         Expr::AssignmentExpression { left, right } => {
-            let r_value = eval_expr(env, *right)?;
-            env.assign(&left.lexeme, r_value.clone());
-            Ok(r_value)
+            let lexeme_value = &left.lexeme;
+            let variable = env.get(lexeme_value);
+            match variable {
+                Some(_) => {
+                    let r_value = eval_expr(env, *right)?;
+                    env.assign(lexeme_value, r_value.clone());
+                    Ok(r_value)
+                }
+                None => Err(RuntimeError::EvaluationError(format!("Variable {lexeme_value} doesn't exist"), left))
+            }
+
             // TODO add error when variable doesn't exist
         }
         Expr::Binary { left, op, right } => {

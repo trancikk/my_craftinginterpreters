@@ -7,8 +7,8 @@ use crate::rlox::parser::Statement::DeclarationStatement;
 use crate::rlox::scanner::Scanner;
 use crate::rlox::token::TokenType::{
     Bang, BangEqual, Colon, Comma, EOF, Equal, EqualEqual, False, FloatNumber, Greater,
-    GreaterEqual, Identifier, LeftParen, Less, LessEqual, Minus, Nil, Number, Plus, Print,
-    Question, RightParen, Semicolon, Slash, Star, StringToken, True, Var,
+    GreaterEqual, Identifier, LeftBrace, LeftParen, Less, LessEqual, Minus, Nil, Number, Plus,
+    Print, Question, RightBrace, RightParen, Semicolon, Slash, Star, StringToken, True, Var,
 };
 use crate::rlox::token::{Token, TokenType};
 
@@ -81,12 +81,13 @@ impl<'src> Parser<'src> {
     pub fn parse_statements(&mut self) -> Result<Statement, RloxError> {
         let next_token = self.peek()?;
         {
-            if next_token.token_type == Var {
-                self.parse_declarations()
-            } else if next_token.token_type == Print {
-                self.print_statement()
-            } else {
-                self.expr_statement()
+            match next_token.token_type {
+                LeftBrace => {
+                    todo!()
+                }
+                Var => self.parse_declarations(),
+                Print => self.print_statement(),
+                _ => self.expr_statement(),
             }
         }
         .inspect_err(|_| {
