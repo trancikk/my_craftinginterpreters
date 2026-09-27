@@ -1,5 +1,5 @@
 use crate::rlox::environment::{Env, EnvRef};
-use crate::rlox::eval::{RuntimeError, eval_statement};
+use crate::rlox::eval::{eval_statement, RuntimeError};
 use crate::rlox::parser::{Parser, ParserMode, Statement};
 use crate::rlox::scanner::Scanner;
 use crate::rlox::token::Token;
@@ -150,9 +150,23 @@ mod tests {
     }
 
     #[test]
-    fn var_declaration_without_initializer() {
+    fn reading_variable_without_initializer_is_runtime_error() {
         let mut rlox = RLox::new();
         rlox.run("var x; x;", ParserMode::Repl);
+        assert!(rlox.had_error);
+    }
+
+    #[test]
+    fn assignment_initializes_variable() {
+        let mut rlox = RLox::new();
+        rlox.run("var x; x = 42; x;", ParserMode::Repl);
+        assert!(!rlox.had_error);
+    }
+
+    #[test]
+    fn nil_is_valid_initialized_value() {
+        let mut rlox = RLox::new();
+        rlox.run("var x = nil; x;", ParserMode::Repl);
         assert!(!rlox.had_error);
     }
 

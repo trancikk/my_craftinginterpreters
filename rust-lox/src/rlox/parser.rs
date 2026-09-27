@@ -6,9 +6,9 @@ use crate::rlox::parser::Expr::{
 use crate::rlox::parser::Statement::DeclarationStatement;
 use crate::rlox::scanner::Scanner;
 use crate::rlox::token::TokenType::{
-    Bang, BangEqual, Colon, Comma, EOF, Equal, EqualEqual, False, FloatNumber, Greater,
-    GreaterEqual, Identifier, LeftBrace, LeftParen, Less, LessEqual, Minus, Nil, Number, Plus,
-    Print, Question, RightBrace, RightParen, Semicolon, Slash, Star, StringToken, True, Var,
+    Bang, BangEqual, Colon, Comma, Equal, EqualEqual, False, FloatNumber, Greater, GreaterEqual,
+    Identifier, LeftBrace, LeftParen, Less, LessEqual, Minus, Nil, Number, Plus, Print, Question,
+    RightBrace, RightParen, Semicolon, Slash, Star, StringToken, True, Var, EOF,
 };
 use crate::rlox::token::{Token, TokenType};
 
@@ -2873,6 +2873,64 @@ pub(crate) mod tests {
                 let (_, op, _) = as_binary(right);
                 assert_eq!(op, Plus);
             });
+        }
+    }
+
+    mod parser_modes {
+        use super::*;
+
+        fn parse_statement_with_mode(
+            input: &str,
+            mode: ParserMode,
+        ) -> Result<Statement, RloxError> {
+            let scanner = Scanner::new(input.lines());
+            let mut parser = Parser::new_with_mode(scanner, mode);
+            parser.parse_statements()
+        }
+
+        #[test]
+        fn repl_accepts_expression_terminated_by_eof() {
+            let result = parse_statement_with_mode("1 + 2", ParserMode::Repl);
+
+            assert!(matches!(result, Ok(Statement::ExprStatement(_))));
+        }
+
+        #[test]
+        fn script_rejects_expression_without_semicolon() {
+            let result = parse_statement_with_mode("1 + 2", ParserMode::Script);
+
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn script_accepts_expression_with_semicolon() {
+            let result = parse_statement_with_mode("1 + 2;", ParserMode::Script);
+
+            assert!(matches!(result, Ok(Statement::ExprStatement(_))));
+        }
+
+        #[test]
+        fn repl_accepts_declaration_terminated_by_eof() {
+            let result = parse_statement_with_mode("var x = 1", ParserMode::Repl);
+
+            assert!(matches!(
+                result,
+                Ok(Statement::DeclarationStatement(name, Some(_))) if name == "x"
+            ));
+        }
+
+        #[test]
+        fn script_rejects_declaration_without_semicolon() {
+            let result = parse_statement_with_mode("var x = 1", ParserMode::Script);
+
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn repl_rejects_incomplete_expression_at_eof() {
+            let result = parse_statement_with_mode("1 +", ParserMode::Repl);
+
+            assert!(result.is_err());
         }
     }
 }

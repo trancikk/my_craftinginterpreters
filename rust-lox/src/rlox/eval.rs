@@ -1392,11 +1392,44 @@ mod tests {
         }
 
         #[test]
-        fn var_declaration_without_initializer_defaults_to_nil() {
-            let mut env = Env::new();
+        fn var_declaration_without_initializer_errors_on_read() {
+            let env = Env::new();
             let stmt = parse_statement_ok("var x;");
             eval_statement(&env, stmt).unwrap();
-            assert_nil(eval_ok_with_env(&env, "x"));
+
+            assert_eq!(Env::get(&env, "x"), Some(Value::Undefined));
+            let result = eval_expr(&env, parse_ok("x"));
+            assert!(matches!(
+                result,
+                Err(RuntimeError::IdentifierNotInitialized(_))
+            ));
+        }
+
+        #[test]
+        fn assignment_initializes_uninitialized_variable() {
+            let env = Env::new();
+            eval_statement(&env, parse_statement_ok("var x;")).unwrap();
+
+            assert_number(eval_expr(&env, parse_ok("x = 42")).unwrap(), 42.0);
+            assert_number(eval_expr(&env, parse_ok("x")).unwrap(), 42.0);
+        }
+
+        #[test]
+        fn nil_initializer_counts_as_initialized() {
+            let env = Env::new();
+            eval_statement(&env, parse_statement_ok("var x = nil;")).unwrap();
+
+            assert_nil(eval_expr(&env, parse_ok("x")).unwrap());
+        }
+
+        #[test]
+        fn expression_statement_returns_value() {
+            let env = Env::new();
+
+            let value =
+                eval_statement(&env, parse_statement_ok("1 + 2;")).unwrap();
+
+            assert_eq!(value, Some(Value::Number(3.0)));
         }
 
         #[test]
@@ -1733,6 +1766,32 @@ mod tests {
                 assert_number(eval_expr(&child, parse_ok("x = 3")).unwrap(), 3.0);
                 assert_number(eval_expr(&parent, parse_ok("x")).unwrap(), 3.0);
                 assert_number(eval_expr(&grandparent, parse_ok("x")).unwrap(), 1.0);
+            }
+
+            #[test]
+            fn uninitialized_child_binding_shadows_initialized_parent() {
+                let parent = Env::new();
+                Env::define(&parent, "x".to_string(), Value::Number(1.0));
+                let child = Env::from_env(&parent);
+                Env::define(&child, "x".to_string(), Value::Undefined);
+
+                let result = eval_expr(&child, parse_ok("x"));
+
+                assert!(matches!(
+                    result,
+                    Err(RuntimeError::IdentifierNotInitialized(_))
+                ));
+                assert_number(eval_expr(&parent, parse_ok("x")).unwrap(), 1.0);
+            }
+
+            #[test]
+            fn child_assignment_initializes_parent_binding() {
+                let parent = Env::new();
+                Env::define(&parent, "x".to_string(), Value::Undefined);
+                let child = Env::from_env(&parent);
+
+                assert_number(eval_expr(&child, parse_ok("x = 2")).unwrap(), 2.0);
+                assert_number(eval_expr(&parent, parse_ok("x")).unwrap(), 2.0);
             }
         }
 
