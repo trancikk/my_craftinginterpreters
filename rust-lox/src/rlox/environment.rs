@@ -1,5 +1,4 @@
 use crate::rlox::eval::Value;
-use crate::rlox::parser::Literal::True;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;

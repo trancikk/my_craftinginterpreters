@@ -60,24 +60,40 @@ pub enum Expr {
     },
 }
 
+#[derive(PartialEq)]
+pub enum ParserMode {
+    Script,
+    Repl,
+}
+
 pub struct Parser<'src> {
     scanner: Scanner<'src>,
     current_token: Option<Token>,
     next_token: Option<Token>,
+    parser_mode: ParserMode,
 }
 
 impl<'src> Parser<'src> {
     pub fn new(scanner: Scanner<'src>) -> Parser<'src> {
+        Self::new_with_mode(scanner, ParserMode::Script)
+    }
+
+    pub fn new_with_mode(scanner: Scanner<'src>, parser_mode: ParserMode) -> Parser<'src> {
         Parser {
             scanner,
             current_token: None,
             next_token: None,
+            parser_mode,
         }
     }
 
-    pub fn parse(&mut self) {
-        while self.expression().is_ok() {}
-    }
+    // pub fn new_repl(scanner: Scanner<'src>) -> Parser<'src> {
+    //     Self::new_with_mode(scanner, ParserMode::Repl)
+    // }
+
+    // pub fn parse(&mut self) {
+    //     while self.expression().is_ok() {}
+    // }
 
     pub fn parse_statements(&mut self) -> Result<Statement, RloxError> {
         let next_token = self.peek()?;
@@ -115,26 +131,27 @@ impl<'src> Parser<'src> {
         } else {
             None
         };
-        self.consume(&Semicolon, "statements should end with a semicolon! ;")?;
+        self.consume_statement_end()?;
         Ok(DeclarationStatement(name.lexeme, initializer))
     }
 
     fn print_statement(&mut self) -> Result<Statement, RloxError> {
         self.advance()?;
         let exp = self.expression()?;
-        self.match_and_return(&Semicolon)?;
+        self.consume_statement_end()?;
         Ok(Statement::Print(exp))
     }
 
     fn expr_statement(&mut self) -> Result<Statement, RloxError> {
         let expr = self.expression()?;
-        self.match_and_return(&Semicolon)?;
+        self.consume_statement_end()?;
         Ok(Statement::ExprStatement(expr))
     }
-    fn report_binary_operation_error(token: Token) -> RloxError {
-        let msg = format!("Binary operation {token:?} is missing left argument!");
-        ParserError(token, msg)
-    }
+
+    // fn report_binary_operation_error(token: Token) -> RloxError {
+    //     let msg = format!("Binary operation {token:?} is missing left argument!");
+    //     ParserError(token, msg)
+    // }
 
     fn produce_error_for_expression(token: Token, msg: &str) -> Result<Expr, RloxError> {
         Err(ParserError(token, String::from(msg)))
@@ -169,7 +186,6 @@ impl<'src> Parser<'src> {
         loop {
             let token = self.peek()?;
             if token.token_type == EOF {
-                self.advance()?;
                 break;
             } else if ops.contains(&token.token_type) {
                 let token = self.advance()?;
@@ -320,6 +336,21 @@ impl<'src> Parser<'src> {
             self.advance()
         } else {
             Self::produce_error_for_token(next, message)
+        }
+    }
+
+    fn consume_statement_end(&mut self) -> Result<(), RloxError> {
+        let next = self.peek()?.clone();
+        match next.token_type {
+            Semicolon => {
+                self.advance()?;
+                Ok(())
+            }
+            EOF if self.parser_mode == ParserMode::Repl => Ok(()),
+            _ => Err(ParserError(
+                next,
+                String::from("Expected semicolon ; or EOF as the end of the statement!"),
+            )),
         }
     }
 
@@ -1247,7 +1278,6 @@ pub(crate) mod tests {
 
     mod errors {
         use super::*;
-        use log::debug;
 
         #[test]
         fn rejects_unclosed_parenthesis() {
@@ -1274,7 +1304,7 @@ pub(crate) mod tests {
         fn rejects_extra_closing_parenthesis() {
             let scanner = Scanner::new("(1 + 2))".lines());
             let mut parser = Parser::new(scanner);
-            let result = parser.expression();
+            let _ = parser.expression();
             let result = parser.expression();
             assert!(result.is_err());
         }
@@ -2070,7 +2100,7 @@ pub(crate) mod tests {
                 let mut parser = Parser::new(scanner);
 
                 let mut count = 0;
-                while let Ok(stmt) = parser.parse_statements() {
+                while let Ok(_) = parser.parse_statements() {
                     count += 1;
                 }
                 assert_eq!(count, 6);
@@ -2208,7 +2238,7 @@ pub(crate) mod tests {
             let mut parser = Parser::new(scanner);
 
             let mut count = 0;
-            while let Ok(stmt) = parser.parse_statements() {
+            while let Ok(_) = parser.parse_statements() {
                 count += 1;
             }
             assert_eq!(count, 3);
@@ -2297,7 +2327,7 @@ pub(crate) mod tests {
         fn parses_complex_precedence_chain() {
             parsed!("1 + 2 * 3 - 4 / 5 < 6 == 7 != 8 >= 9", |expr| {
                 // Just verify it parses without error
-                let (left, op, _) = as_binary(&expr);
+                let (_, op, _) = as_binary(&expr);
                 assert_eq!(op, BangEqual);
             });
         }
@@ -2405,7 +2435,7 @@ pub(crate) mod tests {
                 let (left, op, right) = as_binary(&expr);
                 assert_eq!(op, Less);
                 assert_eq!(as_number(right), 4);
-                let (left, op, right) = as_binary(left);
+                let (_, op, right) = as_binary(left);
                 assert_eq!(op, Less);
                 assert_eq!(as_number(right), 3);
             });
@@ -2457,7 +2487,7 @@ pub(crate) mod tests {
 
             // Each should produce a recovered expression statement
             let mut count = 0;
-            while let Ok(stmt) = parser.parse_statements() {
+            while let Ok(_) = parser.parse_statements() {
                 count += 1;
             }
             assert_eq!(count, 4);
@@ -2528,7 +2558,7 @@ pub(crate) mod tests {
             let mut parser = Parser::new(scanner);
             let result = parser.parse_statements();
             assert!(result.is_err());
-            if let Err(RloxError::ParserError(token, msg)) = result {
+            if let Err(ParserError(_, msg)) = result {
                 assert!(msg.contains("semicolon"));
             } else {
                 panic!("Expected ParserError");
@@ -2762,7 +2792,7 @@ pub(crate) mod tests {
             parsed!("x = (1 + 2) * 3", |expr| {
                 let (left, right) = as_assignment(&expr);
                 assert_eq!(left.lexeme, "x");
-                let (inner_left, op, inner_right) = as_binary(right);
+                let (inner_left, op, _) = as_binary(right);
                 assert_eq!(op, Star);
                 let grouped = as_grouping(inner_left);
                 let (_, add_op, _) = as_binary(grouped);

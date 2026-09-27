@@ -1,6 +1,6 @@
 use crate::rlox::environment::{Env, EnvRef};
 use crate::rlox::eval::{RuntimeError, eval_statement};
-use crate::rlox::parser::{Parser, Statement};
+use crate::rlox::parser::{Parser, ParserMode, Statement};
 use crate::rlox::scanner::Scanner;
 use crate::rlox::token::Token;
 use std::fs::File;
@@ -38,7 +38,7 @@ impl RLox {
         let mut file = File::open(path)?;
         let mut result = String::new();
         file.read_to_string(&mut result)?;
-        self.run(&result);
+        self.run(&result, ParserMode::Script);
         if self.had_error {
             exit(1);
         }
@@ -57,7 +57,7 @@ impl RLox {
             let count = stdin.read_line(&mut line);
             if let Ok(count) = count {
                 if count != 0 {
-                    self.run(&line);
+                    self.run(&line, ParserMode::Repl);
                     line.clear();
                     self.had_error = false;
                 } else {
@@ -68,10 +68,10 @@ impl RLox {
         Ok(())
     }
 
-    pub fn run(&mut self, code: &str) {
+    pub fn run(&mut self, code: &str, parser_mode: ParserMode) {
         let lines = code.lines();
         let scanner = Scanner::new(lines);
-        let mut parser = Parser::new(scanner);
+        let mut parser = Parser::new_with_mode(scanner, parser_mode);
         loop {
             let stmtns = parser.parse_statements();
             match stmtns {
@@ -86,8 +86,8 @@ impl RLox {
                     // }
                     eprintln!("{e}");
                 }
-                Ok(expr) => {
-                    self.interpret(expr);
+                Ok(stmnt) => {
+                    self.interpret(stmnt);
                 }
             }
         }
@@ -110,8 +110,8 @@ impl RLox {
     pub fn interpret(&mut self, statement: Statement) {
         let result = eval_statement(&self.env, statement);
         match result {
-            // Ok(value) => println!("{value:?}"),
-            Ok(_) => {}
+            Ok(value) => println!("{value:?}"),
+            // Ok(_) => {}
             Err(e) => {
                 let e_msg = e.to_string();
                 let token = match e {
@@ -133,70 +133,70 @@ mod tests {
     #[test]
     fn it_works() {
         let mut rlox = RLox::new();
-        rlox.run("1+2");
+        rlox.run("1+2", ParserMode::Repl);
         assert!(!rlox.had_error);
     }
 
     #[test]
     fn var_declaration_and_lookup() {
         let mut rlox = RLox::new();
-        rlox.run("var x = 42; x;");
+        rlox.run("var x = 42; x;", ParserMode::Repl);
         assert!(!rlox.had_error);
     }
 
     #[test]
     fn var_declaration_without_initializer() {
         let mut rlox = RLox::new();
-        rlox.run("var x; x;");
+        rlox.run("var x; x;", ParserMode::Repl);
         assert!(!rlox.had_error);
     }
 
     #[test]
     fn multiple_variables() {
         let mut rlox = RLox::new();
-        rlox.run("var a = 1; var b = 2; a + b;");
+        rlox.run("var a = 1; var b = 2; a + b;", ParserMode::Repl);
         assert!(!rlox.had_error);
     }
 
     #[test]
     fn variable_in_expression() {
         let mut rlox = RLox::new();
-        rlox.run("var x = 10; x * 2 + 5;");
+        rlox.run("var x = 10; x * 2 + 5;", ParserMode::Repl);
         assert!(!rlox.had_error);
     }
 
     #[test]
     fn undefined_variable_error() {
         let mut rlox = RLox::new();
-        rlox.run("undefined_var;");
+        rlox.run("undefined_var;", ParserMode::Repl);
         assert!(rlox.had_error);
     }
 
     #[test]
     fn redefine_variable() {
         let mut rlox = RLox::new();
-        rlox.run("var x = 1; var x = 2; x;");
+        rlox.run("var x = 1; var x = 2; x;", ParserMode::Repl);
         assert!(!rlox.had_error);
     }
 
     #[test]
     fn variable_in_comparison() {
         let mut rlox = RLox::new();
-        rlox.run("var x = 5; x > 3;");
+        rlox.run("var x = 5; x > 3;", ParserMode::Repl);
         assert!(!rlox.had_error);
     }
 
     #[test]
     fn variable_in_ternary() {
         let mut rlox = RLox::new();
-        rlox.run("var cond = true; cond ? 1 : 2;");
+        rlox.run("var cond = true; cond ? 1 : 2;", ParserMode::Repl);
         assert!(!rlox.had_error);
     }
 
     #[test]
     fn print_variable() {
         let mut rlox = RLox::new();
-        rlox.run("var x = 42; print x;");
+        rlox.run("var x = 42; print x;", ParserMode::Repl);
         assert!(!rlox.had_error);
     }
 }
