@@ -25,10 +25,10 @@ impl Display for Value {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let s = match self {
             Value::Number(n) => n.to_string(),
-            Value::Str(s) => s.clone(),
-            Value::Boolean(v) => v.to_string(),
+            Str(s) => s.clone(),
+            Boolean(v) => v.to_string(),
             Value::Nil => String::from("nil"),
-            Value::Undefined => String::from("undefined"),
+            Undefined => String::from("undefined"),
         };
         write!(f, "{s}")
     }
@@ -57,43 +57,54 @@ fn is_equal(value1: &Value, value2: &Value) -> bool {
 }
 
 pub fn eval_statement(env: &EnvRef, statement: Statement) -> Result<Option<Value>, RuntimeError> {
+    eval_statement_ref(env, &statement)
+}
+
+fn eval_statement_ref(env: &EnvRef, statement: &Statement) -> Result<Option<Value>, RuntimeError> {
     match statement {
         Statement::IfStatement {
             expr,
             then,
             else_stmnt,
         } => {
-            let expr_value = eval_expr(env, expr)?;
+            let expr_value = eval_expr_ref(env, expr)?;
             if is_truthy(&expr_value) {
-                eval_statement(env, *then)
+                eval_statement_ref(env, then)
             } else if let Some(else_stmnt) = else_stmnt {
-                eval_statement(env, *else_stmnt)
+                eval_statement_ref(env, else_stmnt)
             } else {
                 Ok(None)
             }
+        }
+        Statement::WhileStatement { body, expr } => {
+            let mut result = None;
+            while is_truthy(&eval_expr_ref(env, expr)?) {
+                result = eval_statement_ref(env, body)?;
+            }
+            Ok(result)
         }
         Statement::BlockStatement(statements) => {
             let mut value = None;
             let nested_env = Env::from_env(env);
             for statement in statements {
-                value = eval_statement(&nested_env, statement)?;
+                value = eval_statement_ref(&nested_env, statement)?;
             }
             Ok(value)
         }
         Statement::DeclarationStatement(name, expr) => {
             let initial_value = match expr {
-                Some(expr) => eval_expr(env, expr)?,
+                Some(expr) => eval_expr_ref(env, expr)?,
                 None => Undefined,
             };
-            Env::define(env, name, initial_value.clone());
+            Env::define(env, name.clone(), initial_value.clone());
             Ok(Some(initial_value))
         }
         Statement::ExprStatement(expr) => {
-            let result = eval_expr(env, expr)?;
+            let result = eval_expr_ref(env, expr)?;
             Ok(Some(result))
         }
         Statement::Print(expr) => {
-            let value = eval_expr(env, expr)?;
+            let value = eval_expr_ref(env, expr)?;
             println!("{value}");
             Ok(None)
         }
@@ -101,14 +112,18 @@ pub fn eval_statement(env: &EnvRef, statement: Statement) -> Result<Option<Value
 }
 
 pub fn eval_expr(env: &EnvRef, exp: Expr) -> Result<Value, RuntimeError> {
+    eval_expr_ref(env, &exp)
+}
+
+fn eval_expr_ref(env: &EnvRef, exp: &Expr) -> Result<Value, RuntimeError> {
     match exp {
         Expr::SyntaxLiteral(literal) => Ok(match literal {
-            Number(value) => Value::Number(value as f64),
-            FloatNumber(value) => Value::Number(value),
+            Number(value) => Value::Number(*value as f64),
+            FloatNumber(value) => Value::Number(*value),
             True => Boolean(true),
             False => Boolean(false),
             Nil => Value::Nil,
-            StringL(value) => Str(value),
+            StringL(value) => Str(value.clone()),
         }),
 
         Expr::AssignmentExpression { left, right } => {
@@ -117,26 +132,26 @@ pub fn eval_expr(env: &EnvRef, exp: Expr) -> Result<Value, RuntimeError> {
             let target = Env::resolve(env, lexeme_value);
             match target {
                 Some(target_env) => {
-                    let r_value = eval_expr(env, *right)?;
+                    let r_value = eval_expr_ref(env, right)?;
                     Env::assign_local(&target_env, lexeme_value, r_value.clone());
                     Ok(r_value)
                 }
                 None => Err(RuntimeError::EvaluationError(
                     format!("Variable {lexeme_value} doesn't exist"),
-                    left,
+                    left.clone(),
                 )),
             }
         }
 
         Expr::Binary { left, op, right } => {
-            let left_value = eval_expr(env, *left)?;
+            let left_value = eval_expr_ref(env, left)?;
 
             match op.token_type {
                 Or => {
                     return if is_truthy(&left_value) {
                         Ok(Boolean(true))
                     } else {
-                        let result = eval_expr(env, *right)?;
+                        let result = eval_expr_ref(env, right)?;
                         Ok(Boolean(is_truthy(&result)))
                     };
                 }
@@ -144,14 +159,14 @@ pub fn eval_expr(env: &EnvRef, exp: Expr) -> Result<Value, RuntimeError> {
                     return if !is_truthy(&left_value) {
                         Ok(Boolean(false))
                     } else {
-                        let result = eval_expr(env, *right)?;
+                        let result = eval_expr_ref(env, right)?;
                         Ok(Boolean(is_truthy(&result)))
                     };
                 }
                 _ => {}
             }
 
-            let right_value = eval_expr(env, *right)?;
+            let right_value = eval_expr_ref(env, right)?;
 
             match op.token_type {
                 TokenType::EqualEqual => Ok(Boolean(is_equal(&left_value, &right_value))),
@@ -169,26 +184,24 @@ pub fn eval_expr(env: &EnvRef, exp: Expr) -> Result<Value, RuntimeError> {
                                 if right == 0f64 {
                                     return Err(RuntimeError::EvaluationError(
                                         String::from("Division by Zero!"),
-                                        op,
+                                        op.clone(),
                                     ));
                                 }
                                 Ok(Value::Number(left / right))
                             }
-                            TokenType::Greater => Ok(Value::Boolean(left > right)),
-                            TokenType::GreaterEqual => Ok(Value::Boolean(left >= right)),
-                            TokenType::Less => Ok(Value::Boolean(left < right)),
-                            TokenType::LessEqual => Ok(Value::Boolean(left <= right)),
-                            _other => Err(IncorrectOperator(op)),
+                            TokenType::Greater => Ok(Boolean(left > right)),
+                            TokenType::GreaterEqual => Ok(Boolean(left >= right)),
+                            TokenType::Less => Ok(Boolean(left < right)),
+                            TokenType::LessEqual => Ok(Boolean(left <= right)),
+                            _other => Err(IncorrectOperator(op.clone())),
                         }
-                    } else if matches!(&left_value, Value::Str(_))
-                        || matches!(&right_value, Value::Str(_))
-                    {
+                    } else if matches!(&left_value, Str(_)) || matches!(&right_value, Str(_)) {
                         match &op.token_type {
-                            Plus => Ok(Value::Str(format!("{left_value}{right_value}"))),
-                            _other => Err(IncorrectOperator(op)),
+                            Plus => Ok(Str(format!("{left_value}{right_value}"))),
+                            _other => Err(IncorrectOperator(op.clone())),
                         }
                     } else {
-                        Err(IncorrectType(left_value, op))
+                        Err(IncorrectType(left_value, op.clone()))
                     }
                 }
             }
@@ -199,40 +212,40 @@ pub fn eval_expr(env: &EnvRef, exp: Expr) -> Result<Value, RuntimeError> {
             left,
             right,
         } => {
-            let predicate_result = eval_expr(env, *predicate)?;
+            let predicate_result = eval_expr_ref(env, predicate)?;
             if is_truthy(&predicate_result) {
-                eval_expr(env, *left)
+                eval_expr_ref(env, left)
             } else {
-                eval_expr(env, *right)
+                eval_expr_ref(env, right)
             }
         }
         Expr::Unary { op, right } => {
-            let right_value = eval_expr(env, *right)?;
+            let right_value = eval_expr_ref(env, right)?;
             match op.token_type {
-                TokenType::Bang => Ok(Value::Boolean(!is_truthy(&right_value))),
+                TokenType::Bang => Ok(Boolean(!is_truthy(&right_value))),
                 TokenType::Minus => {
                     if let Value::Number(value) = right_value {
                         return Ok(Value::Number(value.neg()));
                     }
-                    Err(IncorrectType(right_value, op))
+                    Err(IncorrectType(right_value, op.clone()))
                 }
-                _ => Err(IncorrectOperator(op)),
+                _ => Err(IncorrectOperator(op.clone())),
             }
         }
-        Expr::Grouping { expr } => eval_expr(env, *expr),
+        Expr::Grouping { expr } => eval_expr_ref(env, expr),
         Expr::MissingLeftOperand { token } => {
             let msg = format!("Missing left operand for token {token}");
-            Err(RuntimeError::EvaluationError(msg, token))
+            Err(RuntimeError::EvaluationError(msg, token.clone()))
         }
         Expr::IdentifierExpression(token) => {
             if let Some(identifier_value) = Env::get(env, &token.lexeme) {
                 if identifier_value == Undefined {
-                    Err(IdentifierNotInitialized(token))
+                    Err(IdentifierNotInitialized(token.clone()))
                 } else {
                     Ok(identifier_value)
                 }
             } else {
-                Err(RuntimeError::IdentifierNotFound(token))
+                Err(RuntimeError::IdentifierNotFound(token.clone()))
             }
         }
     }

@@ -3,12 +3,13 @@ use crate::rlox::interpreter::RloxError::ParserError;
 use crate::rlox::parser::Expr::{
     AssignmentExpression, Binary, Grouping, MissingLeftOperand, Ternary, Unary,
 };
-use crate::rlox::parser::Statement::{DeclarationStatement, IfStatement};
+use crate::rlox::parser::Statement::{DeclarationStatement, IfStatement, WhileStatement};
 use crate::rlox::scanner::Scanner;
 use crate::rlox::token::TokenType::{
     And, Bang, BangEqual, Colon, Comma, EOF, Equal, EqualEqual, False, FloatNumber, Greater,
     GreaterEqual, Identifier, If, LeftBrace, LeftParen, Less, LessEqual, Minus, Nil, Number, Or,
     Plus, Print, Question, RightBrace, RightParen, Semicolon, Slash, Star, StringToken, True, Var,
+    While,
 };
 use crate::rlox::token::{Token, TokenType};
 
@@ -32,6 +33,10 @@ pub enum Statement {
         expr: Expr,
         then: Box<Statement>,
         else_stmnt: Option<Box<Statement>>,
+    },
+    WhileStatement {
+        expr: Expr,
+        body: Box<Statement>,
     },
 }
 
@@ -105,6 +110,7 @@ impl<'src> Parser<'src> {
         {
             match next_token.token_type {
                 If => self.parse_if(),
+                While => self.parse_while(),
                 LeftBrace => self.parse_block(),
                 Var => self.parse_declarations(),
                 Print => self.print_statement(),
@@ -133,7 +139,18 @@ impl<'src> Parser<'src> {
             then: Box::new(then),
             else_stmnt,
         })
-        // if
+    }
+
+    pub fn parse_while(&mut self) -> Result<Statement, RloxError> {
+        self.advance()?;
+        self.consume(&LeftParen, "Expected ( after while")?;
+        let expr = self.expression()?;
+        self.consume(&RightParen, "Expected ) after while expression")?;
+        let body = self.parse_statements()?;
+        Ok(WhileStatement {
+            expr,
+            body: Box::new(body),
+        })
     }
 
     pub fn parse_block(&mut self) -> Result<Statement, RloxError> {
