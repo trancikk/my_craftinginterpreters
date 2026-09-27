@@ -65,7 +65,7 @@ pub enum Expr {
     },
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Copy, Clone)]
 pub enum ParserMode {
     Script,
     Repl,
@@ -120,6 +120,7 @@ impl<'src> Parser<'src> {
         self.advance()?;
         self.consume(&LeftParen, "Expected ( after if")?;
         let expr = self.expression()?;
+        self.consume(&RightParen, "Expected ) after if expression")?;
         let then = self.parse_statements()?;
         let else_stmnt = if self.check(&TokenType::Else) {
             self.advance()?;

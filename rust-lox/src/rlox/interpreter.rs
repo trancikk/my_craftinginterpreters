@@ -90,7 +90,7 @@ impl RLox {
                     // eprintln!("{e}");
                 }
                 Ok(stmnt) => {
-                    self.interpret(stmnt);
+                    self.interpret(stmnt, parser_mode);
                 }
             }
         }
@@ -110,11 +110,13 @@ impl RLox {
         eprintln!("{:?} at '{:?}' {:?}", msg, token.line, token.lexeme);
     }
 
-    pub fn interpret(&mut self, statement: Statement) {
+    pub fn interpret(&mut self, statement: Statement, parser_mode: ParserMode) {
         let result = eval_statement(&self.env, statement);
         match result {
             Ok(value) => {
-                if let Some(value) = value {
+                if let Some(value) = value
+                    && parser_mode == ParserMode::Repl
+                {
                     println!("{}", value)
                 }
             }
