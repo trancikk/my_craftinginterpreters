@@ -1,5 +1,5 @@
 use crate::rlox::environment::{Env, EnvRef};
-use crate::rlox::eval::{eval_statement, RuntimeError};
+use crate::rlox::eval::{RuntimeError, eval_statement};
 use crate::rlox::parser::{Parser, ParserMode, Statement};
 use crate::rlox::scanner::Scanner;
 use crate::rlox::token::Token;
@@ -79,12 +79,15 @@ impl RLox {
                     let msg = e.to_string();
                     match e {
                         RloxError::EOF => break,
+                        RloxError::ParserError(token, msg) => {
+                            eprintln!("{token} - {msg}")
+                        }
                         _ => eprintln!("{msg}"),
                     }
                     // match e {
                     //
                     // }
-                    eprintln!("{e}");
+                    // eprintln!("{e}");
                 }
                 Ok(stmnt) => {
                     self.interpret(stmnt);

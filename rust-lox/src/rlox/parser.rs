@@ -44,11 +44,6 @@ pub enum Expr {
         op: Token,
         right: Box<Expr>,
     },
-    Logical {
-        left: Box<Expr>,
-        op: Token,
-        right: Box<Expr>,
-    },
     Ternary {
         predicate: Box<Expr>,
         left: Box<Expr>,
@@ -126,7 +121,7 @@ impl<'src> Parser<'src> {
         self.consume(&LeftParen, "Expected ( after if")?;
         let expr = self.expression()?;
         let then = self.parse_statements()?;
-        let elseStmnt = if self.check(&TokenType::Else) {
+        let else_stmnt = if self.check(&TokenType::Else) {
             self.advance()?;
             Some(Box::new(self.parse_statements()?))
         } else {
@@ -135,7 +130,7 @@ impl<'src> Parser<'src> {
         Ok(IfStatement {
             expr,
             then: Box::new(then),
-            else_stmnt: elseStmnt,
+            else_stmnt,
         })
         // if
     }
@@ -266,7 +261,7 @@ impl<'src> Parser<'src> {
     }
 
     fn ternary(&mut self) -> Result<Expr, RloxError> {
-        let mut expr = self.equality()?;
+        let mut expr = self.logical_or()?;
         if self.match_and_return(&Question).is_ok() {
             let left = self.expression()?;
             self.consume(
@@ -296,7 +291,7 @@ impl<'src> Parser<'src> {
             let expr = self.logical_and()?;
             return Self::produce_and_report_binary_error(expr, token);
         }
-        self.loop_inside_same_level(&[And], Self::logical_and)
+        self.loop_inside_same_level(&[And], Self::equality)
     }
 
     fn equality(&mut self) -> Result<Expr, RloxError> {
@@ -510,7 +505,7 @@ impl<'src> Parser<'src> {
             return self.advance();
         }
         let msg = format!("Expected tokens: {token_types:?}, got: {next:?}");
-        Err(RloxError::ParserError(next, msg))
+        Err(ParserError(next, msg))
     }
 }
 
@@ -813,6 +808,94 @@ pub(crate) mod tests {
                 let (_, inner_op, _) = as_binary(left);
                 assert_eq!(inner_op, EqualEqual);
             });
+        }
+    }
+
+    mod logical {
+        use super::*;
+
+        #[test]
+        fn parses_logical_and() {
+            parsed!("true and false", |expr| {
+                let (left, op, right) = as_binary(&expr);
+                assert_eq!(op, And);
+                assert!(matches!(left, Expr::SyntaxLiteral(Literal::True)));
+                assert!(matches!(right, Expr::SyntaxLiteral(Literal::False)));
+            });
+        }
+
+        #[test]
+        fn parses_logical_or() {
+            parsed!("false or true", |expr| {
+                let (left, op, right) = as_binary(&expr);
+                assert_eq!(op, Or);
+                assert!(matches!(left, Expr::SyntaxLiteral(Literal::False)));
+                assert!(matches!(right, Expr::SyntaxLiteral(Literal::True)));
+            });
+        }
+
+        #[test]
+        fn and_binds_tighter_than_or() {
+            parsed!("true or false and nil", |expr| {
+                let (left, op, right) = as_binary(&expr);
+                assert_eq!(op, Or);
+                assert!(matches!(left, Expr::SyntaxLiteral(Literal::True)));
+
+                let (and_left, and_op, and_right) = as_binary(right);
+                assert_eq!(and_op, And);
+                assert!(matches!(and_left, Expr::SyntaxLiteral(Literal::False)));
+                assert!(matches!(and_right, Expr::SyntaxLiteral(Literal::Nil)));
+            });
+        }
+
+        #[test]
+        fn equality_binds_tighter_than_and() {
+            parsed!("1 == 1 and 2 != 3", |expr| {
+                let (left, op, right) = as_binary(&expr);
+                assert_eq!(op, And);
+                assert_eq!(as_binary(left).1, EqualEqual);
+                assert_eq!(as_binary(right).1, BangEqual);
+            });
+        }
+
+        #[test]
+        fn logical_operators_are_left_associative() {
+            parsed!("true or false or nil", |expr| {
+                let (left, op, right) = as_binary(&expr);
+                assert_eq!(op, Or);
+                assert!(matches!(right, Expr::SyntaxLiteral(Literal::Nil)));
+
+                let (inner_left, inner_op, inner_right) = as_binary(left);
+                assert_eq!(inner_op, Or);
+                assert!(matches!(inner_left, Expr::SyntaxLiteral(Literal::True)));
+                assert!(matches!(inner_right, Expr::SyntaxLiteral(Literal::False)));
+            });
+        }
+
+        #[test]
+        fn logical_or_binds_tighter_than_ternary() {
+            parsed!("false or true ? 1 : 2", |expr| {
+                let (predicate, then_branch, else_branch) = as_ternary(&expr);
+                assert_eq!(as_binary(predicate).1, Or);
+                assert_eq!(as_number(then_branch), 1);
+                assert_eq!(as_number(else_branch), 2);
+            });
+        }
+
+        #[test]
+        fn grouping_overrides_logical_precedence() {
+            parsed!("(true or false) and nil", |expr| {
+                let (left, op, right) = as_binary(&expr);
+                assert_eq!(op, And);
+                assert_eq!(as_binary(as_grouping(left)).1, Or);
+                assert!(matches!(right, Expr::SyntaxLiteral(Literal::Nil)));
+            });
+        }
+
+        #[test]
+        fn rejects_logical_operator_without_right_operand() {
+            parse_expression_fails("true and");
+            parse_expression_fails("false or");
         }
     }
 
@@ -1682,6 +1765,92 @@ pub(crate) mod tests {
 
     mod statements {
         use super::*;
+
+        mod if_statement {
+            use super::*;
+
+            #[test]
+            fn parses_if_with_expression_statement() {
+                parsed_stmt!("if (true) 1;", |stmt| {
+                    let Statement::IfStatement {
+                        expr,
+                        then,
+                        else_stmnt,
+                    } = stmt
+                    else {
+                        panic!("expected if statement");
+                    };
+
+                    assert!(matches!(expr, Expr::SyntaxLiteral(Literal::True)));
+                    assert!(matches!(*then, Statement::ExprStatement(_)));
+                    assert!(else_stmnt.is_none());
+                });
+            }
+
+            #[test]
+            fn parses_if_else() {
+                parsed_stmt!("if (false) 1; else 2;", |stmt| {
+                    let Statement::IfStatement {
+                        then, else_stmnt, ..
+                    } = stmt
+                    else {
+                        panic!("expected if statement");
+                    };
+
+                    assert!(matches!(*then, Statement::ExprStatement(_)));
+                    assert!(matches!(
+                        else_stmnt.as_deref(),
+                        Some(Statement::ExprStatement(_))
+                    ));
+                });
+            }
+
+            #[test]
+            fn parses_block_branches() {
+                parsed_stmt!("if (true) { print 1; } else { print 2; }", |stmt| {
+                    let Statement::IfStatement {
+                        then, else_stmnt, ..
+                    } = stmt
+                    else {
+                        panic!("expected if statement");
+                    };
+
+                    assert!(matches!(*then, Statement::BlockStatement(_)));
+                    assert!(matches!(
+                        else_stmnt.as_deref(),
+                        Some(Statement::BlockStatement(_))
+                    ));
+                });
+            }
+
+            #[test]
+            fn dangling_else_belongs_to_nearest_if() {
+                parsed_stmt!("if (true) if (false) 1; else 2;", |stmt| {
+                    let Statement::IfStatement {
+                        then, else_stmnt, ..
+                    } = stmt
+                    else {
+                        panic!("expected outer if statement");
+                    };
+                    assert!(else_stmnt.is_none());
+
+                    let Statement::IfStatement {
+                        else_stmnt: inner_else,
+                        ..
+                    } = *then
+                    else {
+                        panic!("expected nested if statement");
+                    };
+                    assert!(inner_else.is_some());
+                });
+            }
+
+            #[test]
+            fn rejects_missing_condition_parentheses() {
+                parse_statement_fails("if true 1;");
+                parse_statement_fails("if (true 1;");
+            }
+        }
 
         mod print_statement {
             use super::*;

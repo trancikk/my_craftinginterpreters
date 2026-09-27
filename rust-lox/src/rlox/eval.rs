@@ -105,10 +105,10 @@ pub fn eval_expr(env: &EnvRef, exp: Expr) -> Result<Value, RuntimeError> {
         Expr::SyntaxLiteral(literal) => Ok(match literal {
             Number(value) => Value::Number(value as f64),
             FloatNumber(value) => Value::Number(value),
-            True => Value::Boolean(true),
-            False => Value::Boolean(false),
+            True => Boolean(true),
+            False => Boolean(false),
             Nil => Value::Nil,
-            StringL(value) => Value::Str(value),
+            StringL(value) => Str(value),
         }),
 
         Expr::AssignmentExpression { left, right } => {
@@ -130,64 +130,70 @@ pub fn eval_expr(env: &EnvRef, exp: Expr) -> Result<Value, RuntimeError> {
 
         Expr::Binary { left, op, right } => {
             let left_value = eval_expr(env, *left)?;
-            let right_value = eval_expr(env, *right)?;
-            if op.token_type == TokenType::EqualEqual {
-                return Ok(Value::Boolean(is_equal(&left_value, &right_value)));
-            } else if op.token_type == TokenType::BangEqual {
-                return Ok(Value::Boolean(!is_equal(&left_value, &right_value)));
+
+            match op.token_type {
+                Or => {
+                    return if is_truthy(&left_value) {
+                        Ok(Boolean(true))
+                    } else {
+                        let result = eval_expr(env, *right)?;
+                        Ok(Boolean(is_truthy(&result)))
+                    };
+                }
+                And => {
+                    return if !is_truthy(&left_value) {
+                        Ok(Boolean(false))
+                    } else {
+                        let result = eval_expr(env, *right)?;
+                        Ok(Boolean(is_truthy(&result)))
+                    };
+                }
+                _ => {}
             }
-            // TODO laziness for boolean OR AND
-            if let Value::Number(left) = left_value
-                && let Value::Number(right) = right_value
-            {
-                match &op.token_type {
-                    Plus => Ok(Value::Number(left + right)),
-                    TokenType::Minus => Ok(Value::Number(left - right)),
-                    TokenType::Star => Ok(Value::Number(left * right)),
-                    TokenType::Slash => {
-                        if right == 0f64 {
-                            return Err(RuntimeError::EvaluationError(
-                                String::from("Division by Zero!"),
-                                op,
-                            ));
+
+            let right_value = eval_expr(env, *right)?;
+
+            match op.token_type {
+                TokenType::EqualEqual => Ok(Boolean(is_equal(&left_value, &right_value))),
+                TokenType::BangEqual => Ok(Boolean(!is_equal(&left_value, &right_value))),
+
+                _ => {
+                    if let Value::Number(left) = left_value
+                        && let Value::Number(right) = right_value
+                    {
+                        match &op.token_type {
+                            Plus => Ok(Value::Number(left + right)),
+                            TokenType::Minus => Ok(Value::Number(left - right)),
+                            TokenType::Star => Ok(Value::Number(left * right)),
+                            TokenType::Slash => {
+                                if right == 0f64 {
+                                    return Err(RuntimeError::EvaluationError(
+                                        String::from("Division by Zero!"),
+                                        op,
+                                    ));
+                                }
+                                Ok(Value::Number(left / right))
+                            }
+                            TokenType::Greater => Ok(Value::Boolean(left > right)),
+                            TokenType::GreaterEqual => Ok(Value::Boolean(left >= right)),
+                            TokenType::Less => Ok(Value::Boolean(left < right)),
+                            TokenType::LessEqual => Ok(Value::Boolean(left <= right)),
+                            _other => Err(IncorrectOperator(op)),
                         }
-                        Ok(Value::Number(left / right))
+                    } else if matches!(&left_value, Value::Str(_))
+                        || matches!(&right_value, Value::Str(_))
+                    {
+                        match &op.token_type {
+                            Plus => Ok(Value::Str(format!("{left_value}{right_value}"))),
+                            _other => Err(IncorrectOperator(op)),
+                        }
+                    } else {
+                        Err(IncorrectType(left_value, op))
                     }
-                    TokenType::Greater => Ok(Value::Boolean(left > right)),
-                    TokenType::GreaterEqual => Ok(Value::Boolean(left >= right)),
-                    TokenType::Less => Ok(Value::Boolean(left < right)),
-                    TokenType::LessEqual => Ok(Value::Boolean(left <= right)),
-                    _other => Err(IncorrectOperator(op)),
                 }
-            } else if matches!(&left_value, Value::Str(_)) || matches!(&right_value, Value::Str(_))
-            {
-                match &op.token_type {
-                    Plus => Ok(Value::Str(format!("{left_value}{right_value}"))),
-                    _other => Err(IncorrectOperator(op)),
-                }
-            } else {
-                Err(IncorrectType(left_value, op))
             }
         }
-        Expr::Logical { left, op, right } => match op.token_type {
-            Or => {
-                let left_value = eval_expr(env, *left)?;
-                if is_truthy(&left_value) {
-                    Ok(Boolean(true))
-                } else {
-                    eval_expr(env, *right)
-                }
-            }
-            And => {
-                let left_value = eval_expr(env, *left)?;
-                if !is_truthy(&left_value) {
-                    Ok(Boolean(false))
-                } else {
-                    eval_expr(env, *right)
-                }
-            }
-            _ => Err(IncorrectOperator(op)),
-        },
+
         Expr::Ternary {
             predicate,
             left,
@@ -697,6 +703,210 @@ mod tests {
         }
     }
 
+    mod logical {
+        use super::*;
+        use crate::rlox::parser::tests::parse_statement_ok;
+
+        #[test]
+        fn boolean_operands_produce_boolean_results() {
+            assert_bool(eval_ok("true and true"), true);
+            assert_bool(eval_ok("true and false"), false);
+            assert_bool(eval_ok("false or true"), true);
+            assert_bool(eval_ok("false or false"), false);
+        }
+
+        #[test]
+        fn truthy_operands_still_produce_booleans() {
+            assert_bool(eval_ok("1 and 2"), true);
+            assert_bool(eval_ok("nil and 2"), false);
+            assert_bool(eval_ok("nil or \"value\""), true);
+            assert_bool(eval_ok("false or nil"), false);
+        }
+
+        #[test]
+        fn zero_and_empty_string_are_truthy() {
+            assert_bool(eval_ok("0 and \"\""), true);
+            assert_bool(eval_ok("0 or nil"), true);
+        }
+
+        #[test]
+        fn and_binds_tighter_than_or() {
+            assert_bool(eval_ok("true or false and false"), true);
+            assert_bool(eval_ok("false or true and false"), false);
+        }
+
+        #[test]
+        fn equality_binds_tighter_than_logical_operators() {
+            assert_bool(eval_ok("1 == 1 and 2 != 3"), true);
+            assert_bool(eval_ok("1 == 2 or 2 == 2"), true);
+        }
+
+        #[test]
+        fn logical_expression_can_be_a_ternary_predicate() {
+            assert_number(eval_ok("false or true ? 1 : 2"), 1.0);
+            assert_number(eval_ok("true and nil ? 1 : 2"), 2.0);
+        }
+
+        #[test]
+        fn or_short_circuits_truthy_left_operand() {
+            assert_bool(eval_ok("true or missing"), true);
+            assert_bool(eval_ok("1 or (1 / 0)"), true);
+        }
+
+        #[test]
+        fn and_short_circuits_falsey_left_operand() {
+            assert_bool(eval_ok("false and missing"), false);
+            assert_bool(eval_ok("nil and (1 / 0)"), false);
+        }
+
+        #[test]
+        fn evaluates_right_operand_when_required() {
+            assert!(matches!(
+                eval_parse("false or missing"),
+                Err(RuntimeError::IdentifierNotFound(_))
+            ));
+            assert!(matches!(
+                eval_parse("true and missing"),
+                Err(RuntimeError::IdentifierNotFound(_))
+            ));
+        }
+
+        #[test]
+        fn short_circuit_skips_assignment_side_effects() {
+            let env = Env::new();
+            eval_statement(&env, parse_statement_ok("var x = 0;")).unwrap();
+
+            assert_bool(eval_expr(&env, parse_ok("true or (x = 1)")).unwrap(), true);
+            assert_bool(
+                eval_expr(&env, parse_ok("false and (x = 2)")).unwrap(),
+                false,
+            );
+            assert_number(eval_expr(&env, parse_ok("x")).unwrap(), 0.0);
+        }
+
+        #[test]
+        fn required_right_operand_keeps_assignment_side_effects() {
+            let env = Env::new();
+            eval_statement(&env, parse_statement_ok("var x = 0;")).unwrap();
+
+            assert_bool(eval_expr(&env, parse_ok("false or (x = 1)")).unwrap(), true);
+            assert_number(eval_expr(&env, parse_ok("x")).unwrap(), 1.0);
+        }
+    }
+
+    mod if_statement {
+        use super::*;
+
+        fn expression_statement(input: &str) -> Statement {
+            Statement::ExprStatement(parse_ok(input))
+        }
+
+        fn if_statement(
+            condition: &str,
+            then_branch: Statement,
+            else_branch: Option<Statement>,
+        ) -> Statement {
+            Statement::IfStatement {
+                expr: parse_ok(condition),
+                then: Box::new(then_branch),
+                else_stmnt: else_branch.map(Box::new),
+            }
+        }
+
+        fn eval_if(statement: Statement) -> Result<Option<Value>, RuntimeError> {
+            eval_statement(&Env::new(), statement)
+        }
+
+        #[test]
+        fn truthy_condition_evaluates_then_branch() {
+            let statement = if_statement(
+                "true",
+                expression_statement("1"),
+                Some(expression_statement("2")),
+            );
+
+            assert_eq!(eval_if(statement).unwrap(), Some(Value::Number(1.0)));
+        }
+
+        #[test]
+        fn falsey_condition_evaluates_else_branch() {
+            let statement = if_statement(
+                "false",
+                expression_statement("1"),
+                Some(expression_statement("2")),
+            );
+
+            assert_eq!(eval_if(statement).unwrap(), Some(Value::Number(2.0)));
+        }
+
+        #[test]
+        fn false_condition_without_else_returns_no_value() {
+            let statement = if_statement("false", expression_statement("1"), None);
+
+            assert_eq!(eval_if(statement).unwrap(), None);
+        }
+
+        #[test]
+        fn conditions_use_lox_truthiness() {
+            let nil_condition = if_statement(
+                "nil",
+                expression_statement("1"),
+                Some(expression_statement("2")),
+            );
+            let zero_condition = if_statement(
+                "0",
+                expression_statement("1"),
+                Some(expression_statement("2")),
+            );
+
+            assert_eq!(eval_if(nil_condition).unwrap(), Some(Value::Number(2.0)));
+            assert_eq!(eval_if(zero_condition).unwrap(), Some(Value::Number(1.0)));
+        }
+
+        #[test]
+        fn unselected_branch_is_not_evaluated() {
+            let true_statement = if_statement(
+                "true",
+                expression_statement("1"),
+                Some(expression_statement("missing")),
+            );
+            let false_statement = if_statement(
+                "false",
+                expression_statement("missing"),
+                Some(expression_statement("2")),
+            );
+
+            assert_eq!(eval_if(true_statement).unwrap(), Some(Value::Number(1.0)));
+            assert_eq!(eval_if(false_statement).unwrap(), Some(Value::Number(2.0)));
+        }
+
+        #[test]
+        fn selected_branch_propagates_runtime_error() {
+            let statement = if_statement(
+                "true",
+                expression_statement("missing"),
+                Some(expression_statement("2")),
+            );
+
+            assert!(matches!(
+                eval_if(statement),
+                Err(RuntimeError::IdentifierNotFound(_))
+            ));
+        }
+
+        #[test]
+        fn nested_if_returns_selected_inner_branch() {
+            let inner = if_statement(
+                "false",
+                expression_statement("1"),
+                Some(expression_statement("2")),
+            );
+            let outer = if_statement("true", inner, Some(expression_statement("3")));
+
+            assert_eq!(eval_if(outer).unwrap(), Some(Value::Number(2.0)));
+        }
+    }
+
     mod grouping {
         use super::*;
 
@@ -761,18 +971,6 @@ mod tests {
             fn bang_between_numbers() {
                 let expr = binary(lit_number(1), Bang, lit_number(2));
                 assert_incorrect_operator_expr(expr, Bang);
-            }
-
-            #[test]
-            fn and_between_numbers() {
-                let expr = binary(lit_number(1), And, lit_number(2));
-                assert_incorrect_operator_expr(expr, And);
-            }
-
-            #[test]
-            fn or_between_numbers() {
-                let expr = binary(lit_number(1), Or, lit_number(2));
-                assert_incorrect_operator_expr(expr, Or);
             }
 
             #[test]
