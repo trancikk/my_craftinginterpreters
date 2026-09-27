@@ -3,10 +3,12 @@ use crate::rlox::interpreter::RloxError::ParserError;
 use crate::rlox::parser::Expr::{
     AssignmentExpression, Binary, Grouping, MissingLeftOperand, Ternary, Unary,
 };
-use crate::rlox::parser::Statement::{DeclarationStatement, IfStatement, WhileStatement};
+use crate::rlox::parser::Statement::{
+    BlockStatement, DeclarationStatement, IfStatement, WhileStatement,
+};
 use crate::rlox::scanner::Scanner;
 use crate::rlox::token::TokenType::{
-    And, Bang, BangEqual, Colon, Comma, EOF, Equal, EqualEqual, False, FloatNumber, Greater,
+    And, Bang, BangEqual, Colon, Comma, EOF, Equal, EqualEqual, False, FloatNumber, For, Greater,
     GreaterEqual, Identifier, If, LeftBrace, LeftParen, Less, LessEqual, Minus, Nil, Number, Or,
     Plus, Print, Question, RightBrace, RightParen, Semicolon, Slash, Star, StringToken, True, Var,
     While,
@@ -111,10 +113,11 @@ impl<'src> Parser<'src> {
             match next_token.token_type {
                 If => self.parse_if(),
                 While => self.parse_while(),
+                For => self.parse_for(),
                 LeftBrace => self.parse_block(),
                 Var => self.parse_declarations(),
                 Print => self.print_statement(),
-                _ => self.expr_statement(),
+                _ => self.parse_expr_statement(),
             }
         }
         .inspect_err(|_| {
@@ -122,10 +125,59 @@ impl<'src> Parser<'src> {
         })
     }
 
-    pub fn parse_if(&mut self) -> Result<Statement, RloxError> {
+    fn parse_for(&mut self) -> Result<Statement, RloxError> {
+        self.advance()?;
+        self.consume(&LeftParen, "Expected ( after for")?;
+        let init = {
+            let next_token = self.peek()?;
+            match next_token.token_type {
+                Semicolon => None,
+                Var => Some(self.parse_declarations()?),
+                _ => Some(self.parse_expr_statement()?),
+            }
+        };
+        // self.consume(&Semicolon, "Expected ; after for init")?;
+        let expr = {
+            if !self.check(&Semicolon) {
+                self.parse_expression()?
+            } else {
+                Expr::SyntaxLiteral(Literal::True)
+            }
+        };
+        self.consume(&Semicolon, "Expected ; after for expression")?;
+        let increment = {
+            if !self.check(&RightParen) {
+                Some(self.parse_expression()?)
+            } else {
+                None
+            }
+        };
+        self.consume(&RightParen, "Expected ) after for for loop")?;
+        let statement = self.parse_statements()?;
+
+        let mut while_block = vec![statement];
+        if let Some(increment) = increment {
+            let incr_stmnt = Statement::ExprStatement(increment);
+            while_block.push(incr_stmnt);
+        };
+        let while_block = BlockStatement(while_block);
+        let while_loop = WhileStatement {
+            expr,
+            body: Box::new(while_block),
+        };
+        let final_block = if let Some(init) = init {
+            BlockStatement(vec![init, while_loop])
+        } else {
+            while_loop
+        };
+        println!("{:?}", final_block);
+        Ok(final_block)
+    }
+
+    fn parse_if(&mut self) -> Result<Statement, RloxError> {
         self.advance()?;
         self.consume(&LeftParen, "Expected ( after if")?;
-        let expr = self.expression()?;
+        let expr = self.parse_expression()?;
         self.consume(&RightParen, "Expected ) after if expression")?;
         let then = self.parse_statements()?;
         let else_stmnt = if self.check(&TokenType::Else) {
@@ -144,7 +196,7 @@ impl<'src> Parser<'src> {
     pub fn parse_while(&mut self) -> Result<Statement, RloxError> {
         self.advance()?;
         self.consume(&LeftParen, "Expected ( after while")?;
-        let expr = self.expression()?;
+        let expr = self.parse_expression()?;
         self.consume(&RightParen, "Expected ) after while expression")?;
         let body = self.parse_statements()?;
         Ok(WhileStatement {
@@ -170,7 +222,7 @@ impl<'src> Parser<'src> {
         let name = self.match_and_return(&Identifier)?;
         let initializer = if self.check(&Equal) {
             self.advance()?;
-            Some(self.expression()?)
+            Some(self.parse_expression()?)
         } else {
             None
         };
@@ -180,13 +232,13 @@ impl<'src> Parser<'src> {
 
     fn print_statement(&mut self) -> Result<Statement, RloxError> {
         self.advance()?;
-        let exp = self.expression()?;
+        let exp = self.parse_expression()?;
         self.consume_statement_end()?;
         Ok(Statement::Print(exp))
     }
 
-    fn expr_statement(&mut self) -> Result<Statement, RloxError> {
-        let expr = self.expression()?;
+    fn parse_expr_statement(&mut self) -> Result<Statement, RloxError> {
+        let expr = self.parse_expression()?;
         self.consume_statement_end()?;
         Ok(Statement::ExprStatement(expr))
     }
@@ -245,9 +297,9 @@ impl<'src> Parser<'src> {
         Ok(expr)
     }
 
-    pub fn expression(&mut self) -> Result<Expr, RloxError> {
+    pub fn parse_expression(&mut self) -> Result<Expr, RloxError> {
         if let Ok(token) = self.match_and_return(&Comma) {
-            let expr = self.expression()?;
+            let expr = self.parse_expression()?;
             return Self::produce_and_report_binary_error(expr, token);
         }
         self.loop_inside_same_level(&[Comma], Self::assignment)
@@ -281,7 +333,7 @@ impl<'src> Parser<'src> {
     fn ternary(&mut self) -> Result<Expr, RloxError> {
         let mut expr = self.logical_or()?;
         if self.match_and_return(&Question).is_ok() {
-            let left = self.expression()?;
+            let left = self.parse_expression()?;
             self.consume(
                 &Colon,
                 "Expected ':' in a ternary operator after the predicate",
@@ -373,7 +425,7 @@ impl<'src> Parser<'src> {
             FloatNumber(val) => Ok(Expr::SyntaxLiteral(Literal::FloatNumber(val))),
             StringToken(val) => Ok(Expr::SyntaxLiteral(Literal::StringL(val.clone()))),
             LeftParen => {
-                let expr = self.expression()?;
+                let expr = self.parse_expression()?;
                 self.consume(&RightParen, "Expect ')' after expression.")?;
                 Ok(Grouping {
                     expr: Box::new(expr),
@@ -537,7 +589,7 @@ pub(crate) mod tests {
 
         let scanner = Scanner::new(input.lines());
         let mut parser = Parser::new(scanner);
-        let result = parser.expression();
+        let result = parser.parse_expression();
         assert!(result.is_ok());
         result.unwrap_or_else(|_| panic!("expected expression for {input:?}"))
     }
@@ -545,7 +597,7 @@ pub(crate) mod tests {
     pub(crate) fn parse_expression(input: &str) -> Result<Expr, RloxError> {
         let scanner = Scanner::new(input.lines());
         let mut parser = Parser::new(scanner);
-        parser.expression()
+        parser.parse_expression()
     }
 
     pub(crate) fn parse_statement(input: &str) -> Result<Statement, RloxError> {
@@ -1451,8 +1503,8 @@ pub(crate) mod tests {
         fn rejects_extra_closing_parenthesis() {
             let scanner = Scanner::new("(1 + 2))".lines());
             let mut parser = Parser::new(scanner);
-            let _ = parser.expression();
-            let result = parser.expression();
+            let _ = parser.parse_expression();
+            let result = parser.parse_expression();
             assert!(result.is_err());
         }
 
@@ -2811,7 +2863,7 @@ pub(crate) mod tests {
             let input = "";
             let scanner = Scanner::new(input.lines());
             let mut parser = Parser::new(scanner);
-            let result = parser.expression();
+            let result = parser.parse_expression();
             assert!(result.is_err());
             assert!(matches!(result.unwrap_err(), RloxError::EOF));
         }
@@ -2926,7 +2978,7 @@ pub(crate) mod tests {
             let input = "? 1 : 2";
             let scanner = Scanner::new(input.lines());
             let mut parser = Parser::new(scanner);
-            let result = parser.expression();
+            let result = parser.parse_expression();
             assert!(result.is_err());
         }
 
@@ -2935,7 +2987,7 @@ pub(crate) mod tests {
             let input = "1 ? 2";
             let scanner = Scanner::new(input.lines());
             let mut parser = Parser::new(scanner);
-            let result = parser.expression();
+            let result = parser.parse_expression();
             assert!(result.is_err());
         }
 
@@ -2944,7 +2996,7 @@ pub(crate) mod tests {
             let input = "1 ? 2 :";
             let scanner = Scanner::new(input.lines());
             let mut parser = Parser::new(scanner);
-            let result = parser.expression();
+            let result = parser.parse_expression();
             assert!(result.is_err());
         }
     }
