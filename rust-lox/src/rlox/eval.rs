@@ -1,12 +1,12 @@
 use crate::rlox::environment::{Env, EnvRef};
 use crate::rlox::eval::RuntimeError::{IdentifierNotInitialized, IncorrectOperator, IncorrectType};
-use crate::rlox::eval::Value::{Str, Undefined};
+use crate::rlox::eval::Value::{Boolean, Str, Undefined};
 use crate::rlox::parser::{
     Expr,
     Literal::{False, FloatNumber, Nil, Number, StringL, True},
     Statement,
 };
-use crate::rlox::token::TokenType::Plus;
+use crate::rlox::token::TokenType::{And, Or, Plus};
 use crate::rlox::token::{Token, TokenType};
 use std::fmt::{Display, Formatter};
 use std::ops::Neg;
@@ -58,6 +58,20 @@ fn is_equal(value1: &Value, value2: &Value) -> bool {
 
 pub fn eval_statement(env: &EnvRef, statement: Statement) -> Result<Option<Value>, RuntimeError> {
     match statement {
+        Statement::IfStatement {
+            expr,
+            then,
+            else_stmnt,
+        } => {
+            let expr_value = eval_expr(env, expr)?;
+            if is_truthy(&expr_value) {
+                eval_statement(env, *then)
+            } else if let Some(else_stmnt) = else_stmnt {
+                eval_statement(env, *else_stmnt)
+            } else {
+                Ok(None)
+            }
+        }
         Statement::BlockStatement(statements) => {
             let mut value = None;
             let nested_env = Env::from_env(env);
@@ -155,6 +169,25 @@ pub fn eval_expr(env: &EnvRef, exp: Expr) -> Result<Value, RuntimeError> {
                 Err(IncorrectType(left_value, op))
             }
         }
+        Expr::Logical { left, op, right } => match op.token_type {
+            Or => {
+                let left_value = eval_expr(env, *left)?;
+                if is_truthy(&left_value) {
+                    Ok(Boolean(true))
+                } else {
+                    eval_expr(env, *right)
+                }
+            }
+            And => {
+                let left_value = eval_expr(env, *left)?;
+                if !is_truthy(&left_value) {
+                    Ok(Boolean(false))
+                } else {
+                    eval_expr(env, *right)
+                }
+            }
+            _ => Err(IncorrectOperator(op)),
+        },
         Expr::Ternary {
             predicate,
             left,
@@ -235,7 +268,7 @@ mod tests {
             Str(_) => "string",
             Value::Boolean(_) => "boolean",
             Value::Nil => "nil",
-            Undefined => "undefined"
+            Undefined => "undefined",
         }
     }
 
@@ -1426,8 +1459,7 @@ mod tests {
         fn expression_statement_returns_value() {
             let env = Env::new();
 
-            let value =
-                eval_statement(&env, parse_statement_ok("1 + 2;")).unwrap();
+            let value = eval_statement(&env, parse_statement_ok("1 + 2;")).unwrap();
 
             assert_eq!(value, Some(Value::Number(3.0)));
         }

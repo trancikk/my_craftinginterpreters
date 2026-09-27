@@ -3,12 +3,12 @@ use crate::rlox::interpreter::RloxError::ParserError;
 use crate::rlox::parser::Expr::{
     AssignmentExpression, Binary, Grouping, MissingLeftOperand, Ternary, Unary,
 };
-use crate::rlox::parser::Statement::DeclarationStatement;
+use crate::rlox::parser::Statement::{DeclarationStatement, IfStatement};
 use crate::rlox::scanner::Scanner;
 use crate::rlox::token::TokenType::{
-    Bang, BangEqual, Colon, Comma, Equal, EqualEqual, False, FloatNumber, Greater, GreaterEqual,
-    Identifier, LeftBrace, LeftParen, Less, LessEqual, Minus, Nil, Number, Plus, Print, Question,
-    RightBrace, RightParen, Semicolon, Slash, Star, StringToken, True, Var, EOF,
+    And, Bang, BangEqual, Colon, Comma, EOF, Equal, EqualEqual, False, FloatNumber, Greater,
+    GreaterEqual, Identifier, If, LeftBrace, LeftParen, Less, LessEqual, Minus, Nil, Number, Or,
+    Plus, Print, Question, RightBrace, RightParen, Semicolon, Slash, Star, StringToken, True, Var,
 };
 use crate::rlox::token::{Token, TokenType};
 
@@ -28,6 +28,11 @@ pub enum Statement {
     ExprStatement(Expr),
     DeclarationStatement(String, Option<Expr>),
     BlockStatement(Vec<Statement>),
+    IfStatement {
+        expr: Expr,
+        then: Box<Statement>,
+        else_stmnt: Option<Box<Statement>>,
+    },
 }
 
 #[derive(Debug)]
@@ -35,6 +40,11 @@ pub enum Expr {
     SyntaxLiteral(Literal),
     IdentifierExpression(Token),
     Binary {
+        left: Box<Expr>,
+        op: Token,
+        right: Box<Expr>,
+    },
+    Logical {
         left: Box<Expr>,
         op: Token,
         right: Box<Expr>,
@@ -99,6 +109,7 @@ impl<'src> Parser<'src> {
         let next_token = self.peek()?;
         {
             match next_token.token_type {
+                If => self.parse_if(),
                 LeftBrace => self.parse_block(),
                 Var => self.parse_declarations(),
                 Print => self.print_statement(),
@@ -108,6 +119,25 @@ impl<'src> Parser<'src> {
         .inspect_err(|_| {
             let _ = self.synchronize();
         })
+    }
+
+    pub fn parse_if(&mut self) -> Result<Statement, RloxError> {
+        self.advance()?;
+        self.consume(&LeftParen, "Expected ( after if")?;
+        let expr = self.expression()?;
+        let then = self.parse_statements()?;
+        let elseStmnt = if self.check(&TokenType::Else) {
+            self.advance()?;
+            Some(Box::new(self.parse_statements()?))
+        } else {
+            None
+        };
+        Ok(IfStatement {
+            expr,
+            then: Box::new(then),
+            else_stmnt: elseStmnt,
+        })
+        // if
     }
 
     pub fn parse_block(&mut self) -> Result<Statement, RloxError> {
@@ -251,6 +281,22 @@ impl<'src> Parser<'src> {
             }
         }
         Ok(expr)
+    }
+
+    fn logical_or(&mut self) -> Result<Expr, RloxError> {
+        if let Ok(token) = self.match_and_return(&Or) {
+            let expr = self.logical_or()?;
+            return Self::produce_and_report_binary_error(expr, token);
+        }
+        self.loop_inside_same_level(&[Or], Self::logical_and)
+    }
+
+    fn logical_and(&mut self) -> Result<Expr, RloxError> {
+        if let Ok(token) = self.match_and_return(&And) {
+            let expr = self.logical_and()?;
+            return Self::produce_and_report_binary_error(expr, token);
+        }
+        self.loop_inside_same_level(&[And], Self::logical_and)
     }
 
     fn equality(&mut self) -> Result<Expr, RloxError> {
