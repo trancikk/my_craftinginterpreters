@@ -920,6 +920,122 @@ mod tests {
         }
     }
 
+    mod while_statement {
+        use super::*;
+        use crate::rlox::parser::tests::parse_statement_ok;
+
+        fn eval_statement_ok(env: &EnvRef, input: &str) -> Option<Value> {
+            eval_statement(env, parse_statement_ok(input))
+                .unwrap_or_else(|e| panic!("evaluation failed for {input:?}: {e}"))
+        }
+
+        fn value_of(env: &EnvRef, identifier: &str) -> Value {
+            eval_expr(env, parse_ok(identifier))
+                .unwrap_or_else(|e| panic!("lookup failed for {identifier:?}: {e}"))
+        }
+
+        #[test]
+        fn false_condition_skips_body_and_returns_no_value() {
+            let env = Env::new();
+
+            let result = eval_statement_ok(&env, "while (false) missing;");
+
+            assert_eq!(result, None);
+        }
+
+        #[test]
+        fn nil_condition_skips_body() {
+            let env = Env::new();
+
+            let result = eval_statement_ok(&env, "while (nil) missing;");
+
+            assert_eq!(result, None);
+        }
+
+        #[test]
+        fn repeats_body_until_condition_becomes_false() {
+            let env = Env::new();
+            eval_statement_ok(&env, "var i = 0;");
+
+            let result = eval_statement_ok(&env, "while (i < 3) i = i + 1;");
+
+            assert_eq!(result, Some(Value::Number(3.0)));
+            assert_number(value_of(&env, "i"), 3.0);
+        }
+
+        #[test]
+        fn executes_every_statement_in_block_body() {
+            let env = Env::new();
+            eval_statement_ok(&env, "var i = 1;");
+            eval_statement_ok(&env, "var sum = 0;");
+
+            eval_statement_ok(&env, "while (i <= 3) { sum = sum + i; i = i + 1; }");
+
+            assert_number(value_of(&env, "sum"), 6.0);
+            assert_number(value_of(&env, "i"), 4.0);
+        }
+
+        #[test]
+        fn condition_uses_lox_truthiness_and_is_reevaluated() {
+            let env = Env::new();
+            eval_statement_ok(&env, "var condition = 0;");
+
+            let result = eval_statement_ok(&env, "while (condition) condition = false;");
+
+            assert_eq!(result, Some(Value::Boolean(false)));
+            assert_bool(value_of(&env, "condition"), false);
+        }
+
+        #[test]
+        fn supports_nested_loops() {
+            let env = Env::new();
+            eval_statement_ok(&env, "var outer = 0;");
+            eval_statement_ok(&env, "var count = 0;");
+
+            eval_statement_ok(
+                &env,
+                "while (outer < 3) {
+                    var inner = 0;
+                    while (inner < 2) {
+                        count = count + 1;
+                        inner = inner + 1;
+                    }
+                    outer = outer + 1;
+                }",
+            );
+
+            assert_number(value_of(&env, "count"), 6.0);
+            assert_number(value_of(&env, "outer"), 3.0);
+        }
+
+        #[test]
+        fn block_locals_do_not_escape_loop_body() {
+            let env = Env::new();
+            eval_statement_ok(&env, "var i = 0;");
+
+            eval_statement_ok(&env, "while (i < 2) { var local = i; i = i + 1; }");
+
+            assert_eq!(Env::get(&env, "local"), None);
+            assert_number(value_of(&env, "i"), 2.0);
+        }
+
+        #[test]
+        fn condition_runtime_error_is_propagated() {
+            let env = Env::new();
+            let result = eval_statement(&env, parse_statement_ok("while (missing) 1;"));
+
+            assert!(matches!(result, Err(RuntimeError::IdentifierNotFound(_))));
+        }
+
+        #[test]
+        fn body_runtime_error_is_propagated() {
+            let env = Env::new();
+            let result = eval_statement(&env, parse_statement_ok("while (true) missing;"));
+
+            assert!(matches!(result, Err(RuntimeError::IdentifierNotFound(_))));
+        }
+    }
+
     mod grouping {
         use super::*;
 

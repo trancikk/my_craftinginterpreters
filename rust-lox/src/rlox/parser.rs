@@ -1870,6 +1870,110 @@ pub(crate) mod tests {
             }
         }
 
+        mod while_statement {
+            use super::*;
+
+            #[test]
+            fn parses_expression_body() {
+                parsed_stmt!("while (true) 1;", |stmt| {
+                    let Statement::WhileStatement { expr, body } = stmt else {
+                        panic!("expected while statement");
+                    };
+
+                    assert!(matches!(expr, Expr::SyntaxLiteral(Literal::True)));
+                    assert!(matches!(*body, Statement::ExprStatement(_)));
+                });
+            }
+
+            #[test]
+            fn parses_block_body_with_multiple_statements() {
+                parsed_stmt!("while (i < 3) { print i; i = i + 1; }", |stmt| {
+                    let Statement::WhileStatement { expr, body } = stmt else {
+                        panic!("expected while statement");
+                    };
+
+                    let (_, op, _) = as_binary(&expr);
+                    assert_eq!(op, Less);
+
+                    let Statement::BlockStatement(statements) = *body else {
+                        panic!("expected block body");
+                    };
+                    assert_eq!(statements.len(), 2);
+                    assert!(matches!(statements[0], Statement::Print(_)));
+                    assert!(matches!(statements[1], Statement::ExprStatement(_)));
+                });
+            }
+
+            #[test]
+            fn parses_empty_block_body() {
+                parsed_stmt!("while (false) {}", |stmt| {
+                    let Statement::WhileStatement { body, .. } = stmt else {
+                        panic!("expected while statement");
+                    };
+
+                    let Statement::BlockStatement(statements) = *body else {
+                        panic!("expected block body");
+                    };
+                    assert!(statements.is_empty());
+                });
+            }
+
+            #[test]
+            fn parses_nested_while_statements() {
+                parsed_stmt!("while (true) while (false) 1;", |stmt| {
+                    let Statement::WhileStatement { body, .. } = stmt else {
+                        panic!("expected outer while statement");
+                    };
+                    assert!(matches!(*body, Statement::WhileStatement { .. }));
+                });
+            }
+
+            #[test]
+            fn parses_assignment_condition() {
+                parsed_stmt!("while (running = false) 1;", |stmt| {
+                    let Statement::WhileStatement { expr, .. } = stmt else {
+                        panic!("expected while statement");
+                    };
+
+                    let Expr::AssignmentExpression { left, right } = expr else {
+                        panic!("expected assignment condition");
+                    };
+                    assert_eq!(left.lexeme, "running");
+                    assert!(matches!(*right, Expr::SyntaxLiteral(Literal::False)));
+                });
+            }
+
+            #[test]
+            fn while_body_can_be_if_else_statement() {
+                parsed_stmt!("while (true) if (false) 1; else 2;", |stmt| {
+                    let Statement::WhileStatement { body, .. } = stmt else {
+                        panic!("expected while statement");
+                    };
+
+                    let Statement::IfStatement { else_stmnt, .. } = *body else {
+                        panic!("expected if body");
+                    };
+                    assert!(else_stmnt.is_some());
+                });
+            }
+
+            #[test]
+            fn rejects_missing_condition_parentheses() {
+                parse_statement_fails("while true 1;");
+                parse_statement_fails("while (true 1;");
+            }
+
+            #[test]
+            fn rejects_missing_condition() {
+                parse_statement_fails("while () 1;");
+            }
+
+            #[test]
+            fn rejects_missing_body() {
+                parse_statement_fails("while (true)");
+            }
+        }
+
         mod print_statement {
             use super::*;
 
