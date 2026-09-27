@@ -104,13 +104,17 @@ impl RLox {
 
     pub fn report_token(&mut self, token: &Token, msg: &str) {
         self.had_error = true;
-        eprintln!("{:?} at '{:?}' {:?}", token.line, token.lexeme, msg);
+        eprintln!("{:?} at '{:?}' {:?}", msg, token.line, token.lexeme);
     }
 
     pub fn interpret(&mut self, statement: Statement) {
         let result = eval_statement(&self.env, statement);
         match result {
-            Ok(value) => println!("{value:?}"),
+            Ok(value) => {
+                if let Some(value) = value {
+                    println!("{}", value)
+                }
+            }
             // Ok(_) => {}
             Err(e) => {
                 let e_msg = e.to_string();
@@ -119,6 +123,7 @@ impl RLox {
                     RuntimeError::IncorrectOperator(token) => token,
                     RuntimeError::EvaluationError(_, token) => token,
                     RuntimeError::IdentifierNotFound(token) => token,
+                    RuntimeError::IdentifierNotInitialized(token) => token,
                 };
                 self.report_token(&token, &e_msg);
             }

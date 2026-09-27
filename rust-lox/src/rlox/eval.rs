@@ -1,5 +1,6 @@
 use crate::rlox::environment::{Env, EnvRef};
-use crate::rlox::eval::RuntimeError::{IncorrectOperator, IncorrectType};
+use crate::rlox::eval::RuntimeError::{IdentifierNotInitialized, IncorrectOperator, IncorrectType};
+use crate::rlox::eval::Value::{Str, Undefined};
 use crate::rlox::parser::{
     Expr,
     Literal::{False, FloatNumber, Nil, Number, StringL, True},
@@ -17,6 +18,7 @@ pub enum Value {
     Str(String),
     Boolean(bool),
     Nil,
+    Undefined,
 }
 
 impl Display for Value {
@@ -26,6 +28,7 @@ impl Display for Value {
             Value::Str(s) => s.clone(),
             Value::Boolean(v) => v.to_string(),
             Value::Nil => String::from("nil"),
+            Value::Undefined => String::from("undefined"),
         };
         write!(f, "{s}")
     }
@@ -41,6 +44,8 @@ pub enum RuntimeError {
     EvaluationError(String, Token),
     #[error("Identifier {0:?} not found!")]
     IdentifierNotFound(Token),
+    #[error("Identifier {0:?} is not initialized!")]
+    IdentifierNotInitialized(Token),
 }
 
 fn is_truthy(value: &Value) -> bool {
@@ -51,30 +56,34 @@ fn is_equal(value1: &Value, value2: &Value) -> bool {
     value1 == value2
 }
 
-pub fn eval_statement(env: &EnvRef, statement: Statement) -> Result<(), RuntimeError> {
+pub fn eval_statement(env: &EnvRef, statement: Statement) -> Result<Option<Value>, RuntimeError> {
     match statement {
         Statement::BlockStatement(statements) => {
+            let mut value = None;
             let nested_env = Env::from_env(env);
             for statement in statements {
-                eval_statement(&nested_env, statement)?
+                value = eval_statement(&nested_env, statement)?;
             }
+            Ok(value)
         }
         Statement::DeclarationStatement(name, expr) => {
             let initial_value = match expr {
                 Some(expr) => eval_expr(env, expr)?,
-                None => Value::Nil,
+                None => Undefined,
             };
-            Env::define(env, name, initial_value)
+            Env::define(env, name, initial_value.clone());
+            Ok(Some(initial_value))
         }
         Statement::ExprStatement(expr) => {
-            eval_expr(env, expr)?;
+            let result = eval_expr(env, expr)?;
+            Ok(Some(result))
         }
         Statement::Print(expr) => {
             let value = eval_expr(env, expr)?;
             println!("{value}");
+            Ok(None)
         }
-    };
-    Ok(())
+    }
 }
 
 pub fn eval_expr(env: &EnvRef, exp: Expr) -> Result<Value, RuntimeError> {
@@ -178,7 +187,11 @@ pub fn eval_expr(env: &EnvRef, exp: Expr) -> Result<Value, RuntimeError> {
         }
         Expr::IdentifierExpression(token) => {
             if let Some(identifier_value) = Env::get(env, &token.lexeme) {
-                Ok(identifier_value)
+                if identifier_value == Undefined {
+                    Err(IdentifierNotInitialized(token))
+                } else {
+                    Ok(identifier_value)
+                }
             } else {
                 Err(RuntimeError::IdentifierNotFound(token))
             }
@@ -219,9 +232,10 @@ mod tests {
     fn get_type_name(value: &Value) -> &'static str {
         match value {
             Value::Number(_) => "number",
-            Value::Str(_) => "string",
+            Str(_) => "string",
             Value::Boolean(_) => "boolean",
             Value::Nil => "nil",
+            Undefined => "undefined"
         }
     }
 
@@ -1381,8 +1395,8 @@ mod tests {
         fn var_declaration_without_initializer_defaults_to_nil() {
             let mut env = Env::new();
             let stmt = parse_statement_ok("var x;");
-            eval_statement(&mut env, stmt).unwrap();
-            assert_nil(eval_ok_with_env(&mut env, "x"));
+            eval_statement(&env, stmt).unwrap();
+            assert_nil(eval_ok_with_env(&env, "x"));
         }
 
         #[test]

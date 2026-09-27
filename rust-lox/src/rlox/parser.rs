@@ -447,7 +447,7 @@ impl<'src> Parser<'src> {
             return self.advance();
         }
         let msg = format!("Expected token: {token_type:?}, got: {token:?}");
-        Err(RloxError::ParserError(token, msg))
+        Err(ParserError(token, msg))
     }
 
     fn match_any(&mut self, token_types: &[TokenType]) -> bool {
