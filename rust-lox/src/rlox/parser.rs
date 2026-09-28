@@ -1,3 +1,4 @@
+use crate::rlox::eval::Value;
 use crate::rlox::interpreter::RloxError;
 use crate::rlox::interpreter::RloxError::ParserError;
 use crate::rlox::parser::Expr::{
@@ -8,10 +9,10 @@ use crate::rlox::parser::Statement::{
 };
 use crate::rlox::scanner::Scanner;
 use crate::rlox::token::TokenType::{
-    And, Bang, BangEqual, Colon, Comma, EOF, Equal, EqualEqual, False, FloatNumber, For, Greater,
-    GreaterEqual, Identifier, If, LeftBrace, LeftParen, Less, LessEqual, Minus, Nil, Number, Or,
-    Plus, Print, Question, RightBrace, RightParen, Semicolon, Slash, Star, StringToken, True, Var,
-    While,
+    And, Bang, BangEqual, Break, Colon, Comma, EOF, Equal, EqualEqual, False, FloatNumber, For,
+    Greater, GreaterEqual, Identifier, If, LeftBrace, LeftParen, Less, LessEqual, Minus, Nil,
+    Number, Or, Plus, Print, Question, RightBrace, RightParen, Semicolon, Slash, Star, StringToken,
+    True, Var, While,
 };
 use crate::rlox::token::{Token, TokenType};
 
@@ -23,6 +24,11 @@ pub enum Literal {
     True,
     False,
     Nil,
+}
+
+pub enum ExecFlow {
+    Normal(Option<Value>),
+    Break,
 }
 
 #[derive(Debug)]
@@ -40,6 +46,7 @@ pub enum Statement {
         expr: Expr,
         body: Box<Statement>,
     },
+    BreakStatement,
 }
 
 #[derive(Debug)]
@@ -83,6 +90,7 @@ pub struct Parser<'src> {
     current_token: Option<Token>,
     next_token: Option<Token>,
     parser_mode: ParserMode,
+    loop_nesting: u16,
 }
 
 impl<'src> Parser<'src> {
@@ -96,6 +104,7 @@ impl<'src> Parser<'src> {
             current_token: None,
             next_token: None,
             parser_mode,
+            loop_nesting: 0,
         }
     }
 
@@ -117,6 +126,19 @@ impl<'src> Parser<'src> {
                 LeftBrace => self.parse_block(),
                 Var => self.parse_declarations(),
                 Print => self.print_statement(),
+                Break => {
+                    let next_token = self.advance()?;
+                    self.consume_statement_end()?;
+                    if self.loop_nesting == 0 {
+                        eprintln!("Break outside of a loop!");
+                        Err(ParserError(
+                            next_token,
+                            "Break outside of a loop!".to_string(),
+                        ))
+                    } else {
+                        Ok(Statement::BreakStatement)
+                    }
+                }
                 _ => self.parse_expr_statement(),
             }
         }
@@ -126,54 +148,59 @@ impl<'src> Parser<'src> {
     }
 
     fn parse_for(&mut self) -> Result<Statement, RloxError> {
-        self.advance()?;
-        self.consume(&LeftParen, "Expected ( after for")?;
-        let init = {
-            let next_token = self.peek()?;
-            match next_token.token_type {
-                Semicolon => {
-                    self.advance()?;
+        self.loop_nesting += 1;
+        let result = {
+            self.advance()?;
+            self.consume(&LeftParen, "Expected ( after for")?;
+            let init = {
+                let next_token = self.peek()?;
+                match next_token.token_type {
+                    Semicolon => {
+                        self.advance()?;
+                        None
+                    }
+                    Var => Some(self.parse_declarations()?),
+                    _ => Some(self.parse_expr_statement()?),
+                }
+            };
+            // self.consume(&Semicolon, "Expected ; after for init")?;
+            let expr = {
+                if !self.check(&Semicolon) {
+                    self.parse_expression()?
+                } else {
+                    Expr::SyntaxLiteral(Literal::True)
+                }
+            };
+            self.consume(&Semicolon, "Expected ; after for expression")?;
+            let increment = {
+                if !self.check(&RightParen) {
+                    Some(self.parse_expression()?)
+                } else {
                     None
                 }
-                Var => Some(self.parse_declarations()?),
-                _ => Some(self.parse_expr_statement()?),
-            }
-        };
-        // self.consume(&Semicolon, "Expected ; after for init")?;
-        let expr = {
-            if !self.check(&Semicolon) {
-                self.parse_expression()?
-            } else {
-                Expr::SyntaxLiteral(Literal::True)
-            }
-        };
-        self.consume(&Semicolon, "Expected ; after for expression")?;
-        let increment = {
-            if !self.check(&RightParen) {
-                Some(self.parse_expression()?)
-            } else {
-                None
-            }
-        };
-        self.consume(&RightParen, "Expected ) after for for loop")?;
-        let statement = self.parse_statements()?;
+            };
+            self.consume(&RightParen, "Expected ) after for for loop")?;
+            let statement = self.parse_statements()?;
 
-        let mut while_block = vec![statement];
-        if let Some(increment) = increment {
-            let incr_stmnt = Statement::ExprStatement(increment);
-            while_block.push(incr_stmnt);
+            let mut while_block = vec![statement];
+            if let Some(increment) = increment {
+                let incr_stmnt = Statement::ExprStatement(increment);
+                while_block.push(incr_stmnt);
+            };
+            let while_block = BlockStatement(while_block);
+            let while_loop = WhileStatement {
+                expr,
+                body: Box::new(while_block),
+            };
+            let final_block = if let Some(init) = init {
+                BlockStatement(vec![init, while_loop])
+            } else {
+                while_loop
+            };
+            Ok(final_block)
         };
-        let while_block = BlockStatement(while_block);
-        let while_loop = WhileStatement {
-            expr,
-            body: Box::new(while_block),
-        };
-        let final_block = if let Some(init) = init {
-            BlockStatement(vec![init, while_loop])
-        } else {
-            while_loop
-        };
-        Ok(final_block)
+        self.loop_nesting -= 1;
+        result
     }
 
     fn parse_if(&mut self) -> Result<Statement, RloxError> {
@@ -196,15 +223,20 @@ impl<'src> Parser<'src> {
     }
 
     pub fn parse_while(&mut self) -> Result<Statement, RloxError> {
-        self.advance()?;
-        self.consume(&LeftParen, "Expected ( after while")?;
-        let expr = self.parse_expression()?;
-        self.consume(&RightParen, "Expected ) after while expression")?;
-        let body = self.parse_statements()?;
-        Ok(WhileStatement {
-            expr,
-            body: Box::new(body),
-        })
+        self.loop_nesting += 1;
+        let result = {
+            self.advance()?;
+            self.consume(&LeftParen, "Expected ( after while")?;
+            let expr = self.parse_expression()?;
+            self.consume(&RightParen, "Expected ) after while expression")?;
+            let body = self.parse_statements()?;
+            Ok(WhileStatement {
+                expr,
+                body: Box::new(body),
+            })
+        };
+        self.loop_nesting -= 1;
+        result
     }
 
     pub fn parse_block(&mut self) -> Result<Statement, RloxError> {
@@ -1837,6 +1869,90 @@ pub(crate) mod tests {
 
     mod statements {
         use super::*;
+
+        mod break_statement {
+            use super::*;
+
+            #[test]
+            fn parses_break_as_while_body() {
+                parsed_stmt!("while (true) break;", |stmt| {
+                    let Statement::WhileStatement { body, .. } = stmt else {
+                        panic!("expected while statement");
+                    };
+
+                    assert!(matches!(*body, Statement::BreakStatement));
+                });
+            }
+
+            #[test]
+            fn parses_break_nested_in_loop_block_and_if() {
+                parsed_stmt!("while (true) { if (ready) break; }", |stmt| {
+                    let Statement::WhileStatement { body, .. } = stmt else {
+                        panic!("expected while statement");
+                    };
+                    let Statement::BlockStatement(statements) = *body else {
+                        panic!("expected loop body block");
+                    };
+                    let Statement::IfStatement { then, .. } = &statements[0] else {
+                        panic!("expected if statement");
+                    };
+
+                    assert!(matches!(then.as_ref(), Statement::BreakStatement));
+                });
+            }
+
+            #[test]
+            fn preserves_break_before_desugared_for_increment() {
+                parsed_stmt!("for (var i = 0; i < 3; i = i + 1) break;", |stmt| {
+                    let BlockStatement(statements) = stmt else {
+                        panic!("expected initializer block");
+                    };
+                    let WhileStatement { body, .. } = &statements[1] else {
+                        panic!("expected desugared while statement");
+                    };
+                    let BlockStatement(body) = body.as_ref() else {
+                        panic!("expected desugared while body block");
+                    };
+
+                    assert!(matches!(body[0], Statement::BreakStatement));
+                    assert!(matches!(body[1], Statement::ExprStatement(_)));
+                });
+            }
+
+            #[test]
+            fn rejects_break_without_semicolon() {
+                parse_statement_fails("while (true) break");
+            }
+
+            #[test]
+            fn rejects_break_with_a_value() {
+                parse_statement_fails("while (true) break 1;");
+            }
+
+            #[test]
+            fn rejects_break_outside_loop() {
+                parse_statement_fails("break;");
+            }
+
+            #[test]
+            fn rejects_break_in_non_loop_block() {
+                parse_statement_fails("{ break; }");
+            }
+
+            #[test]
+            fn rejects_break_in_if_outside_loop() {
+                parse_statement_fails("if (true) break;");
+            }
+
+            #[test]
+            fn loop_context_does_not_leak_to_following_statement() {
+                let scanner = Scanner::new("while (false) 1; break;".lines());
+                let mut parser = Parser::new(scanner);
+
+                assert!(parser.parse_statements().is_ok());
+                assert!(parser.parse_statements().is_err());
+            }
+        }
 
         mod if_statement {
             use super::*;

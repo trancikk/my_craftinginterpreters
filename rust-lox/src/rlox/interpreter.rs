@@ -1,5 +1,6 @@
 use crate::rlox::environment::{Env, EnvRef};
 use crate::rlox::eval::{RuntimeError, eval_statement};
+use crate::rlox::parser::ExecFlow::Normal;
 use crate::rlox::parser::{Parser, ParserMode, Statement};
 use crate::rlox::scanner::Scanner;
 use crate::rlox::token::Token;
@@ -114,7 +115,7 @@ impl RLox {
         let result = eval_statement(&self.env, statement);
         match result {
             Ok(value) => {
-                if let Some(value) = value
+                if let Normal(Some(value)) = value
                     && parser_mode == ParserMode::Repl
                 {
                     println!("{}", value)

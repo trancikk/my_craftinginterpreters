@@ -1,8 +1,9 @@
 use crate::rlox::environment::{Env, EnvRef};
 use crate::rlox::eval::RuntimeError::{IdentifierNotInitialized, IncorrectOperator, IncorrectType};
 use crate::rlox::eval::Value::{Boolean, Str, Undefined};
+use crate::rlox::parser::ExecFlow::{Break, Normal};
 use crate::rlox::parser::{
-    Expr,
+    ExecFlow, Expr,
     Literal::{False, FloatNumber, Nil, Number, StringL, True},
     Statement,
 };
@@ -56,11 +57,11 @@ fn is_equal(value1: &Value, value2: &Value) -> bool {
     value1 == value2
 }
 
-pub fn eval_statement(env: &EnvRef, statement: Statement) -> Result<Option<Value>, RuntimeError> {
+pub fn eval_statement(env: &EnvRef, statement: Statement) -> Result<ExecFlow, RuntimeError> {
     eval_statement_ref(env, &statement)
 }
 
-fn eval_statement_ref(env: &EnvRef, statement: &Statement) -> Result<Option<Value>, RuntimeError> {
+fn eval_statement_ref(env: &EnvRef, statement: &Statement) -> Result<ExecFlow, RuntimeError> {
     match statement {
         Statement::IfStatement {
             expr,
@@ -73,23 +74,31 @@ fn eval_statement_ref(env: &EnvRef, statement: &Statement) -> Result<Option<Valu
             } else if let Some(else_stmnt) = else_stmnt {
                 eval_statement_ref(env, else_stmnt)
             } else {
-                Ok(None)
+                Ok(Normal(None))
             }
         }
         Statement::WhileStatement { body, expr } => {
-            let mut result = None;
+            let mut value = None;
             while is_truthy(&eval_expr_ref(env, expr)?) {
-                result = eval_statement_ref(env, body)?;
+                let result = eval_statement_ref(env, body)?;
+                match result {
+                    Normal(result_value) => value = result_value,
+                    _ => return Ok(Normal(value)),
+                }
             }
-            Ok(result)
+            Ok(Normal(value))
         }
         Statement::BlockStatement(statements) => {
             let mut value = None;
             let nested_env = Env::from_env(env);
             for statement in statements {
-                value = eval_statement_ref(&nested_env, statement)?;
+                let result = eval_statement_ref(&nested_env, statement)?;
+                match result {
+                    Normal(result_value) => value = result_value,
+                    _ => return Ok(result),
+                }
             }
-            Ok(value)
+            Ok(Normal(value))
         }
         Statement::DeclarationStatement(name, expr) => {
             let initial_value = match expr {
@@ -97,17 +106,18 @@ fn eval_statement_ref(env: &EnvRef, statement: &Statement) -> Result<Option<Valu
                 None => Undefined,
             };
             Env::define(env, name.clone(), initial_value.clone());
-            Ok(Some(initial_value))
+            Ok(Normal(Some(initial_value)))
         }
         Statement::ExprStatement(expr) => {
             let result = eval_expr_ref(env, expr)?;
-            Ok(Some(result))
+            Ok(Normal(Some(result)))
         }
         Statement::Print(expr) => {
             let value = eval_expr_ref(env, expr)?;
             println!("{value}");
-            Ok(None)
+            Ok(Normal(None))
         }
+        Statement::BreakStatement => Ok(Break),
     }
 }
 
@@ -827,7 +837,10 @@ mod tests {
         }
 
         fn eval_if(statement: Statement) -> Result<Option<Value>, RuntimeError> {
-            eval_statement(&Env::new(), statement)
+            eval_statement(&Env::new(), statement).map(|flow| match flow {
+                Normal(value) => value,
+                Break => panic!("expected normal execution, got break"),
+            })
         }
 
         #[test]
@@ -925,8 +938,12 @@ mod tests {
         use crate::rlox::parser::tests::parse_statement_ok;
 
         fn eval_statement_ok(env: &EnvRef, input: &str) -> Option<Value> {
-            eval_statement(env, parse_statement_ok(input))
+            match eval_statement(env, parse_statement_ok(input))
                 .unwrap_or_else(|e| panic!("evaluation failed for {input:?}: {e}"))
+            {
+                Normal(value) => value,
+                Break => panic!("expected normal execution for {input:?}, got break"),
+            }
         }
 
         fn value_of(env: &EnvRef, identifier: &str) -> Value {
@@ -1031,6 +1048,137 @@ mod tests {
         fn body_runtime_error_is_propagated() {
             let env = Env::new();
             let result = eval_statement(&env, parse_statement_ok("while (true) missing;"));
+
+            assert!(matches!(result, Err(RuntimeError::IdentifierNotFound(_))));
+        }
+    }
+
+    mod break_statement {
+        use super::*;
+        use crate::rlox::parser::tests::parse_statement_ok;
+
+        fn evaluate(env: &EnvRef, input: &str) -> Result<ExecFlow, RuntimeError> {
+            eval_statement(env, parse_statement_ok(input))
+        }
+
+        fn value_of(env: &EnvRef, identifier: &str) -> Value {
+            eval_expr(env, parse_ok(identifier))
+                .unwrap_or_else(|e| panic!("lookup failed for {identifier:?}: {e}"))
+        }
+
+        #[test]
+        fn break_statement_produces_break_flow() {
+            let result = eval_statement(&Env::new(), Statement::BreakStatement);
+
+            assert!(matches!(result, Ok(Break)));
+        }
+
+        #[test]
+        fn block_propagates_break_and_skips_remaining_statements() {
+            let env = Env::new();
+            evaluate(&env, "var value = 0;").unwrap();
+            let statement = Statement::BlockStatement(vec![
+                Statement::BreakStatement,
+                Statement::ExprStatement(parse_ok("value = 1")),
+            ]);
+
+            let result = eval_statement(&env, statement);
+
+            assert!(matches!(result, Ok(Break)));
+            assert_number(value_of(&env, "value"), 0.0);
+        }
+
+        #[test]
+        fn selected_if_branch_propagates_break() {
+            let statement = Statement::IfStatement {
+                expr: SyntaxLiteral(True),
+                then: Box::new(Statement::BreakStatement),
+                else_stmnt: None,
+            };
+
+            let result = eval_statement(&Env::new(), statement);
+
+            assert!(matches!(result, Ok(Break)));
+        }
+
+        #[test]
+        fn unselected_break_branch_does_not_interrupt_execution() {
+            let statement = Statement::IfStatement {
+                expr: SyntaxLiteral(False),
+                then: Box::new(Statement::BreakStatement),
+                else_stmnt: Some(Box::new(Statement::ExprStatement(parse_ok("42")))),
+            };
+
+            let result = eval_statement(&Env::new(), statement);
+
+            assert!(matches!(
+                result,
+                Ok(Normal(Some(Value::Number(number)))) if number == 42.0
+            ));
+        }
+
+        #[test]
+        fn false_loop_does_not_execute_break() {
+            let result = evaluate(&Env::new(), "while (false) break;");
+
+            assert!(matches!(result, Ok(Normal(None))));
+        }
+
+        #[test]
+        fn while_consumes_break_flow() {
+            let result = evaluate(&Env::new(), "while (true) break;");
+
+            assert!(matches!(result, Ok(Normal(None))));
+        }
+
+        #[test]
+        fn break_skips_rest_of_loop_body() {
+            let env = Env::new();
+            evaluate(&env, "var value = 0;").unwrap();
+
+            let result = evaluate(
+                &env,
+                "while (true) { value = value + 1; break; value = 99; }",
+            );
+
+            assert!(matches!(result, Ok(Normal(_))));
+            assert_number(value_of(&env, "value"), 1.0);
+        }
+
+        #[test]
+        fn nested_break_exits_only_innermost_loop() {
+            let env = Env::new();
+            evaluate(&env, "var outer = 0;").unwrap();
+            evaluate(&env, "var completed = 0;").unwrap();
+
+            let result = evaluate(
+                &env,
+                "while (outer < 3) {
+                    while (true) break;
+                    completed = completed + 1;
+                    outer = outer + 1;
+                }",
+            );
+
+            assert!(matches!(result, Ok(Normal(_))));
+            assert_number(value_of(&env, "completed"), 3.0);
+            assert_number(value_of(&env, "outer"), 3.0);
+        }
+
+        #[test]
+        fn break_in_for_loop_skips_increment() {
+            let env = Env::new();
+            evaluate(&env, "var i = 0;").unwrap();
+
+            let result = evaluate(&env, "for (; i < 3; i = i + 1) break;");
+
+            assert!(matches!(result, Ok(Normal(_))));
+            assert_number(value_of(&env, "i"), 0.0);
+        }
+
+        #[test]
+        fn runtime_error_before_break_is_not_suppressed() {
+            let result = evaluate(&Env::new(), "while (true) { missing; break; }");
 
             assert!(matches!(result, Err(RuntimeError::IdentifierNotFound(_))));
         }
@@ -1788,7 +1936,10 @@ mod tests {
 
             let value = eval_statement(&env, parse_statement_ok("1 + 2;")).unwrap();
 
-            assert_eq!(value, Some(Value::Number(3.0)));
+            assert!(matches!(
+                value,
+                Normal(Some(Value::Number(number))) if number == 3.0
+            ));
         }
 
         #[test]

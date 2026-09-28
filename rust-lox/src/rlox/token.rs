@@ -29,6 +29,7 @@ pub const RESERVED_KEYWORDS: LazyLock<HashMap<String, TokenType>> = LazyLock::ne
         ("true", TokenType::True),
         ("var", TokenType::Var),
         ("while", TokenType::While),
+        ("break", TokenType::Break),
     ])
     .into_iter()
     .map(|(k, v)| (k.to_string(), v))
@@ -102,6 +103,6 @@ pub enum TokenType {
     True,
     Var,
     While,
-
+    Break,
     EOF,
 }
