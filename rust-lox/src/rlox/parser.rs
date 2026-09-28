@@ -131,7 +131,10 @@ impl<'src> Parser<'src> {
         let init = {
             let next_token = self.peek()?;
             match next_token.token_type {
-                Semicolon => None,
+                Semicolon => {
+                    self.advance()?;
+                    None
+                }
                 Var => Some(self.parse_declarations()?),
                 _ => Some(self.parse_expr_statement()?),
             }
@@ -170,7 +173,6 @@ impl<'src> Parser<'src> {
         } else {
             while_loop
         };
-        println!("{:?}", final_block);
         Ok(final_block)
     }
 
@@ -2023,6 +2025,220 @@ pub(crate) mod tests {
             #[test]
             fn rejects_missing_body() {
                 parse_statement_fails("while (true)");
+            }
+        }
+
+        mod for_statement {
+            use super::*;
+
+            #[test]
+            fn desugars_all_clauses() {
+                parsed_stmt!("for (var i = 0; i < 3; i = i + 1) print i;", |stmt| {
+                    let Statement::BlockStatement(statements) = stmt else {
+                        panic!("expected initializer block");
+                    };
+                    assert_eq!(statements.len(), 2);
+
+                    let Statement::DeclarationStatement(name, Some(initializer)) = &statements[0]
+                    else {
+                        panic!("expected variable initializer");
+                    };
+                    assert_eq!(name, "i");
+                    assert_eq!(as_number(initializer), 0);
+
+                    let Statement::WhileStatement { expr, body } = &statements[1] else {
+                        panic!("expected desugared while statement");
+                    };
+                    let (left, op, right) = as_binary(expr);
+                    assert_eq!(op, Less);
+                    assert!(matches!(
+                        left,
+                        Expr::IdentifierExpression(token) if token.lexeme == "i"
+                    ));
+                    assert_eq!(as_number(right), 3);
+
+                    let Statement::BlockStatement(body) = body.as_ref() else {
+                        panic!("expected desugared while body block");
+                    };
+                    assert_eq!(body.len(), 2);
+                    assert!(matches!(body[0], Statement::Print(_)));
+
+                    let Statement::ExprStatement(Expr::AssignmentExpression { left, right }) =
+                        &body[1]
+                    else {
+                        panic!("expected increment assignment");
+                    };
+                    assert_eq!(left.lexeme, "i");
+                    let (left, op, right) = as_binary(right);
+                    assert_eq!(op, Plus);
+                    assert!(matches!(
+                        left,
+                        Expr::IdentifierExpression(token) if token.lexeme == "i"
+                    ));
+                    assert_eq!(as_number(right), 1);
+                });
+            }
+
+            #[test]
+            fn desugars_expression_initializer() {
+                parsed_stmt!("for (i = 0; i < 2; i = i + 1) 1;", |stmt| {
+                    let Statement::BlockStatement(statements) = stmt else {
+                        panic!("expected initializer block");
+                    };
+                    assert_eq!(statements.len(), 2);
+                    assert!(matches!(
+                        statements[0],
+                        Statement::ExprStatement(Expr::AssignmentExpression { .. })
+                    ));
+                    assert!(matches!(statements[1], Statement::WhileStatement { .. }));
+                });
+            }
+
+            #[test]
+            fn omitted_initializer_does_not_add_outer_block() {
+                parsed_stmt!("for (; i < 2; i = i + 1) print i;", |stmt| {
+                    assert!(matches!(stmt, WhileStatement { .. }));
+                });
+            }
+
+            #[test]
+            fn omitted_condition_defaults_to_true() {
+                parsed_stmt!("for (var i = 0;; i = i + 1) print i;", |stmt| {
+                    let Statement::BlockStatement(statements) = stmt else {
+                        panic!("expected initializer block");
+                    };
+                    let Statement::WhileStatement { expr, .. } = &statements[1] else {
+                        panic!("expected desugared while statement");
+                    };
+                    assert!(matches!(expr, Expr::SyntaxLiteral(Literal::True)));
+                });
+            }
+
+            #[test]
+            fn omitted_increment_does_not_add_increment_statement() {
+                parsed_stmt!("for (var ignored; keep_going;) print 1;", |stmt| {
+                    let Statement::BlockStatement(statements) = stmt else {
+                        panic!("expected initializer block");
+                    };
+                    let Statement::WhileStatement { body, .. } = &statements[1] else {
+                        panic!("expected desugared while statement");
+                    };
+                    let Statement::BlockStatement(body) = body.as_ref() else {
+                        panic!("expected desugared while body block");
+                    };
+                    assert_eq!(body.len(), 1);
+                    assert!(matches!(body[0], Statement::Print(_)));
+                });
+            }
+
+            #[test]
+            fn supports_all_three_omitted_clauses() {
+                parsed_stmt!("for (;;) print 1;", |stmt| {
+                    let WhileStatement { expr, body } = stmt else {
+                        panic!("expected desugared while statement");
+                    };
+                    assert!(matches!(expr, Expr::SyntaxLiteral(Literal::True)));
+                    let BlockStatement(body) = *body else {
+                        panic!("expected desugared while body block");
+                    };
+                    assert_eq!(body.len(), 1);
+                    assert!(matches!(body[0], Statement::Print(_)));
+                });
+            }
+
+            #[test]
+            fn preserves_block_body_before_increment() {
+                parsed_stmt!(
+                    "for (var ignored; true; i = i + 1) { print i; print i + 1; }",
+                    |stmt| {
+                        let Statement::BlockStatement(statements) = stmt else {
+                            panic!("expected initializer block");
+                        };
+                        let Statement::WhileStatement { body, .. } = &statements[1] else {
+                            panic!("expected desugared while statement");
+                        };
+                        let Statement::BlockStatement(body) = body.as_ref() else {
+                            panic!("expected desugared while body block");
+                        };
+                        assert_eq!(body.len(), 2);
+                        let Statement::BlockStatement(original_body) = &body[0] else {
+                            panic!("expected original block body");
+                        };
+                        assert_eq!(original_body.len(), 2);
+                        assert!(matches!(body[1], Statement::ExprStatement(_)));
+                    }
+                );
+            }
+
+            #[test]
+            fn supports_nested_for_statements() {
+                parsed_stmt!("for (var outer;;) for (var inner;;) print 1;", |stmt| {
+                    let Statement::BlockStatement(statements) = stmt else {
+                        panic!("expected outer initializer block");
+                    };
+                    let Statement::WhileStatement { body, .. } = &statements[1] else {
+                        panic!("expected outer desugared while statement");
+                    };
+                    let Statement::BlockStatement(body) = body.as_ref() else {
+                        panic!("expected outer while body block");
+                    };
+                    assert!(matches!(body[0], Statement::BlockStatement(_)));
+                });
+            }
+
+            #[test]
+            fn body_can_be_if_else_statement() {
+                parsed_stmt!(
+                    "for (var ignored;;) if (true) print 1; else print 2;",
+                    |stmt| {
+                        let Statement::BlockStatement(statements) = stmt else {
+                            panic!("expected initializer block");
+                        };
+                        let Statement::WhileStatement { body, .. } = &statements[1] else {
+                            panic!("expected desugared while statement");
+                        };
+                        let Statement::BlockStatement(body) = body.as_ref() else {
+                            panic!("expected desugared while body block");
+                        };
+                        assert!(matches!(
+                            body[0],
+                            Statement::IfStatement {
+                                else_stmnt: Some(_),
+                                ..
+                            }
+                        ));
+                    }
+                );
+            }
+
+            #[test]
+            fn rejects_missing_opening_parenthesis() {
+                parse_statement_fails("for ;;) print 1;");
+            }
+
+            #[test]
+            fn rejects_missing_initializer_semicolon() {
+                parse_statement_fails("for (var i = 0 i < 3; i = i + 1) print i;");
+            }
+
+            #[test]
+            fn rejects_missing_condition_semicolon() {
+                parse_statement_fails("for (var i = 0; i < 3 i = i + 1) print i;");
+            }
+
+            #[test]
+            fn rejects_missing_closing_parenthesis() {
+                parse_statement_fails("for (var i = 0; i < 3; i = i + 1 print i;");
+            }
+
+            #[test]
+            fn rejects_missing_initializer_expression() {
+                parse_statement_fails("for (var i =; i < 3; i = i + 1) print i;");
+            }
+
+            #[test]
+            fn rejects_missing_body() {
+                parse_statement_fails("for (;;)");
             }
         }
 
