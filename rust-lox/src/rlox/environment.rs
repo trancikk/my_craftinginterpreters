@@ -3,9 +3,10 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+#[derive(Debug, PartialEq)]
 pub struct Env {
-    pub(in crate::rlox::environment) names: HashMap<String, Value>,
-    pub(in crate::rlox::environment) parent_env: Option<Rc<RefCell<Env>>>,
+    pub(self) names: HashMap<String, Value>,
+    pub(self) parent_env: Option<Rc<RefCell<Env>>>,
 }
 
 pub type EnvRef = Rc<RefCell<Env>>;

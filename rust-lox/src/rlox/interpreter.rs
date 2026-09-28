@@ -1,5 +1,6 @@
 use crate::rlox::environment::{Env, EnvRef};
 use crate::rlox::eval::{RuntimeError, eval_statement};
+use crate::rlox::natives::define_clock;
 use crate::rlox::parser::ExecFlow::Normal;
 use crate::rlox::parser::{Parser, ParserMode, Statement};
 use crate::rlox::scanner::Scanner;
@@ -12,7 +13,7 @@ use thiserror::Error;
 
 pub struct RLox {
     pub had_error: bool,
-    env: EnvRef,
+    global_env: EnvRef,
 }
 
 // TODO add RuntimeError, use it in report error method
@@ -28,8 +29,10 @@ pub enum RloxError {
 
 impl RLox {
     pub fn new() -> RLox {
+        let env = Env::new();
+        define_clock(env.clone());
         RLox {
-            env: Env::new(),
+            global_env: env,
             had_error: false,
         }
     }
@@ -112,7 +115,7 @@ impl RLox {
     }
 
     pub fn interpret(&mut self, statement: Statement, parser_mode: ParserMode) {
-        let result = eval_statement(&self.env, statement);
+        let result = eval_statement(&self.global_env, statement);
         match result {
             Ok(value) => {
                 if let Normal(Some(value)) = value

@@ -16,7 +16,9 @@ use crate::rlox::token::TokenType::{
 };
 use crate::rlox::token::{Token, TokenType};
 
-#[derive(Debug)]
+const MAX_ARGS: u8 = 254;
+
+#[derive(Debug, PartialEq)]
 pub enum Literal {
     Number(u64),
     FloatNumber(f64),
@@ -49,7 +51,7 @@ pub enum Statement {
     BreakStatement,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Expr {
     SyntaxLiteral(Literal),
     IdentifierExpression(Token),
@@ -76,6 +78,11 @@ pub enum Expr {
     },
     MissingLeftOperand {
         token: Token,
+    },
+    CallableExpression {
+        callee: Box<Expr>,
+        paren: Token,
+        args: Vec<Expr>,
     },
 }
 
@@ -448,6 +455,44 @@ impl<'src> Parser<'src> {
         self.primary()
     }
 
+    fn callable(&mut self) -> Result<Expr, RloxError> {
+        let mut expr = self.primary()?;
+
+        loop {
+            if self.check_and_advance(&LeftParen) {
+                expr = self.parse_callable(expr)?
+            } else {
+                break;
+            }
+        }
+        Ok(expr)
+    }
+
+    fn parse_callable(&mut self, expr: Expr) -> Result<Expr, RloxError> {
+        let mut args = vec![];
+        loop {
+            if self.check(&RightParen) {
+                break;
+            }
+            let expr = self.parse_expression()?;
+            args.push(expr);
+            if args.len() == MAX_ARGS as usize {
+                let next_token = self.peek()?;
+                return Err(ParserError(
+                    next_token.clone(),
+                    "Can't have more than 255 arguments.".to_string(),
+                ));
+            } else {
+                self.check_and_advance(&Comma);
+            }
+        }
+        let paren = self.consume(&RightParen, "Expect ')' after arguments")?;
+        Ok(Expr::CallableExpression {
+            callee: Box::new(expr),
+            args,
+            paren,
+        })
+    }
     fn primary(&mut self) -> Result<Expr, RloxError> {
         let next = self.advance()?;
         match next.token_type.clone() {
@@ -584,6 +629,15 @@ impl<'src> Parser<'src> {
         } else {
             false
         }
+    }
+
+    fn check_and_advance(&mut self, token_type: &TokenType) -> bool {
+        if let Ok(next) = self.peek() {
+            if (next.token_type == *token_type) {
+                return self.advance().is_ok();
+            }
+        }
+        false
     }
 
     fn match_and_return(&mut self, token_type: &TokenType) -> Result<Token, RloxError> {

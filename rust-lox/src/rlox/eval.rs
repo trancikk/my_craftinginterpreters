@@ -1,6 +1,6 @@
 use crate::rlox::environment::{Env, EnvRef};
 use crate::rlox::eval::RuntimeError::{IdentifierNotInitialized, IncorrectOperator, IncorrectType};
-use crate::rlox::eval::Value::{Boolean, Str, Undefined};
+use crate::rlox::eval::Value::{Boolean, CallableValue, Str, Undefined};
 use crate::rlox::parser::ExecFlow::{Break, Normal};
 use crate::rlox::parser::{
     ExecFlow, Expr,
@@ -9,19 +9,63 @@ use crate::rlox::parser::{
 };
 use crate::rlox::token::TokenType::{And, Or, Plus};
 use crate::rlox::token::{Token, TokenType};
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::ops::Neg;
+use std::rc::Rc;
 use thiserror::Error;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone)]
 pub enum Value {
     Number(f64),
     Str(String),
     Boolean(bool),
     Nil,
     Undefined,
+    CallableValue(Rc<dyn Callable>),
 }
 
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Value::Number(a), Value::Number(b)) => a == b,
+            (Str(a), Str(b)) => a == b,
+            (Boolean(a), Boolean(b)) => a == b,
+            (Value::Nil, Value::Nil) => true,
+            (Undefined, Undefined) => true,
+            // Compare pointer addresses in memory
+            (CallableValue(a), CallableValue(b)) => Rc::ptr_eq(a, b),
+            _ => false,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct LoxFunction {
+    pub name: String,
+    pub args: Vec<String>,
+    pub env: EnvRef,
+}
+
+pub trait Callable: Debug {
+    fn call(&self, args: Vec<Value>) -> Result<Value, RuntimeError>;
+    fn get_name(&self) -> String;
+
+    fn get_arity(&self) -> u8;
+}
+
+impl Callable for LoxFunction {
+    fn call(&self, args: Vec<Value>) -> Result<Value, RuntimeError> {
+        todo!()
+    }
+
+    fn get_name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn get_arity(&self) -> u8 {
+        self.args.len() as u8
+    }
+}
 impl Display for Value {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let s = match self {
@@ -30,6 +74,7 @@ impl Display for Value {
             Boolean(v) => v.to_string(),
             Value::Nil => String::from("nil"),
             Undefined => String::from("undefined"),
+            CallableValue(fun) => fun.get_name(),
         };
         write!(f, "{s}")
     }
@@ -50,7 +95,7 @@ pub enum RuntimeError {
 }
 
 fn is_truthy(value: &Value) -> bool {
-    !matches!(value, Value::Boolean(false) | Value::Nil)
+    !matches!(value, Boolean(false) | Value::Nil)
 }
 
 fn is_equal(value1: &Value, value2: &Value) -> bool {
@@ -258,6 +303,35 @@ fn eval_expr_ref(env: &EnvRef, exp: &Expr) -> Result<Value, RuntimeError> {
                 Err(RuntimeError::IdentifierNotFound(token.clone()))
             }
         }
+        Expr::CallableExpression {
+            callee,
+            paren,
+            args,
+        } => {
+            let callee = eval_expr_ref(env, callee)?;
+            if let CallableValue(fun) = callee {
+                let args = args
+                    .iter()
+                    .map(|arg| eval_expr_ref(env, arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                if args.len() as u8 != fun.get_arity() {
+                    return Err(RuntimeError::EvaluationError(
+                        format!(
+                            "fExpected {:?} arguments but got {:?}",
+                            fun.get_arity(),
+                            args.len()
+                        ),
+                        paren.clone(),
+                    ));
+                }
+                fun.call(args)
+            } else {
+                Err(RuntimeError::EvaluationError(
+                    format!("{:?} is not callable", callee),
+                    paren.clone(),
+                ))
+            }
+        }
     }
 }
 
@@ -295,9 +369,10 @@ mod tests {
         match value {
             Value::Number(_) => "number",
             Str(_) => "string",
-            Value::Boolean(_) => "boolean",
+            Boolean(_) => "boolean",
             Value::Nil => "nil",
             Undefined => "undefined",
+            CallableValue(_) => "callable",
         }
     }
 
