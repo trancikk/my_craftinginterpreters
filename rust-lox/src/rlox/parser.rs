@@ -1,4 +1,5 @@
-use crate::rlox::eval::Value;
+use crate::rlox::environment::EnvRef;
+use crate::rlox::eval::{LoxFunction, Value};
 use crate::rlox::interpreter::RloxError;
 use crate::rlox::interpreter::RloxError::ParserError;
 use crate::rlox::parser::Expr::{
@@ -10,7 +11,7 @@ use crate::rlox::parser::Statement::{
 use crate::rlox::scanner::Scanner;
 use crate::rlox::token::TokenType::{
     And, Bang, BangEqual, Break, Colon, Comma, EOF, Equal, EqualEqual, False, FloatNumber, For,
-    Greater, GreaterEqual, Identifier, If, LeftBrace, LeftParen, Less, LessEqual, Minus, Nil,
+    Fun, Greater, GreaterEqual, Identifier, If, LeftBrace, LeftParen, Less, LessEqual, Minus, Nil,
     Number, Or, Plus, Print, Question, RightBrace, RightParen, Semicolon, Slash, Star, StringToken,
     True, Var, While,
 };
@@ -34,11 +35,16 @@ pub enum ExecFlow {
 }
 
 #[derive(Debug)]
+pub struct Block {
+    pub statements: Vec<Statement>,
+}
+
+#[derive(Debug)]
 pub enum Statement {
     Print(Expr),
     ExprStatement(Expr),
     DeclarationStatement(String, Option<Expr>),
-    BlockStatement(Vec<Statement>),
+    BlockStatement(Block),
     IfStatement {
         expr: Expr,
         then: Box<Statement>,
@@ -49,6 +55,11 @@ pub enum Statement {
         body: Box<Statement>,
     },
     BreakStatement,
+    FunctionStatement {
+        args: Vec<Token>,
+        name: Token,
+        body: Block,
+    },
 }
 
 #[derive(Debug, PartialEq)]
@@ -130,7 +141,8 @@ impl<'src> Parser<'src> {
                 If => self.parse_if(),
                 While => self.parse_while(),
                 For => self.parse_for(),
-                LeftBrace => self.parse_block(),
+                Fun => self.parse_fun(),
+                LeftBrace => self.parse_block_statement(),
                 Var => self.parse_declarations(),
                 Print => self.print_statement(),
                 Break => {
@@ -154,6 +166,27 @@ impl<'src> Parser<'src> {
         })
     }
 
+    fn parse_fun(&mut self) -> Result<Statement, RloxError> {
+        self.advance()?;
+        let name = self.consume(&Identifier, "Expected function name")?;
+        self.consume(&LeftParen, "Expect '(' after function name")?;
+        let mut params = vec![];
+        loop {
+            let param = self.consume(&Identifier, "Expected parameter name")?;
+            params.push(param);
+            if !self.check_and_advance(&Comma) {
+                break;
+            }
+        }
+        self.consume(&RightParen, "Expect ')' after function args")?;
+        self.expect(&LeftBrace)?;
+        let body = self.parse_block()?;
+        Ok(Statement::FunctionStatement {
+            args: params,
+            name,
+            body,
+        })
+    }
     fn parse_for(&mut self) -> Result<Statement, RloxError> {
         self.loop_nesting += 1;
         let result = {
@@ -194,13 +227,17 @@ impl<'src> Parser<'src> {
                 let incr_stmnt = Statement::ExprStatement(increment);
                 while_block.push(incr_stmnt);
             };
-            let while_block = BlockStatement(while_block);
+            let while_block = BlockStatement(Block {
+                statements: while_block,
+            });
             let while_loop = WhileStatement {
                 expr,
                 body: Box::new(while_block),
             };
             let final_block = if let Some(init) = init {
-                BlockStatement(vec![init, while_loop])
+                BlockStatement(Block {
+                    statements: vec![init, while_loop],
+                })
             } else {
                 while_loop
             };
@@ -229,7 +266,7 @@ impl<'src> Parser<'src> {
         })
     }
 
-    pub fn parse_while(&mut self) -> Result<Statement, RloxError> {
+    fn parse_while(&mut self) -> Result<Statement, RloxError> {
         self.loop_nesting += 1;
         let result = {
             self.advance()?;
@@ -246,8 +283,12 @@ impl<'src> Parser<'src> {
         result
     }
 
-    pub fn parse_block(&mut self) -> Result<Statement, RloxError> {
-        self.advance()?;
+    fn parse_block_statement(&mut self) -> Result<Statement, RloxError> {
+        self.parse_block().map(|block| BlockStatement(block))
+    }
+
+    fn parse_block(&mut self) -> Result<Block, RloxError> {
+        self.consume(&LeftBrace, "Expected '{' before block")?;
         let mut res: Vec<Statement> = Vec::new();
         let token_match = [RightBrace, EOF];
         while !self.match_any(&token_match) {
@@ -255,7 +296,7 @@ impl<'src> Parser<'src> {
             res.push(next_stmtn);
         }
         self.consume(&RightBrace, "Expected } at the end of a block!")?;
-        Ok(Statement::BlockStatement(res))
+        Ok(Block { statements: res })
     }
 
     fn parse_declarations(&mut self) -> Result<Statement, RloxError> {
@@ -452,19 +493,21 @@ impl<'src> Parser<'src> {
                 right: Box::new(right),
             });
         }
-        self.primary()
+        self.callable()
     }
 
     fn callable(&mut self) -> Result<Expr, RloxError> {
         let mut expr = self.primary()?;
-
-        loop {
-            if self.check_and_advance(&LeftParen) {
-                expr = self.parse_callable(expr)?
-            } else {
-                break;
+        if self.check_and_advance(&LeftParen) {
+            loop {
+                expr = self.parse_callable(expr)?;
+                if !self.check_and_advance(&Comma) {
+                    break;
+                }
             }
+            self.consume(&RightParen, "Expected to have ) after function arguments")?;
         }
+
         Ok(expr)
     }
 
@@ -632,12 +675,25 @@ impl<'src> Parser<'src> {
     }
 
     fn check_and_advance(&mut self, token_type: &TokenType) -> bool {
-        if let Ok(next) = self.peek() {
-            if (next.token_type == *token_type) {
-                return self.advance().is_ok();
-            }
+        if let Ok(next) = self.peek()
+            && (next.token_type == *token_type)
+        {
+            self.advance().is_ok()
+        } else {
+            false
         }
-        false
+    }
+
+    fn expect(&mut self, token_type: &TokenType) -> Result<Token, RloxError> {
+        let next_token = self.peek()?;
+        if next_token.token_type != *token_type {
+            Err(ParserError(
+                next_token.clone(),
+                format!("Expected {:?}, got {:?}", token_type, next_token),
+            ))
+        } else {
+            self.advance()
+        }
     }
 
     fn match_and_return(&mut self, token_type: &TokenType) -> Result<Token, RloxError> {
@@ -2321,17 +2377,17 @@ pub(crate) mod tests {
                 parsed_stmt!(
                     "for (var ignored; true; i = i + 1) { print i; print i + 1; }",
                     |stmt| {
-                        let Statement::BlockStatement(statements) = stmt else {
+                        let BlockStatement(statements) = stmt else {
                             panic!("expected initializer block");
                         };
-                        let Statement::WhileStatement { body, .. } = &statements[1] else {
+                        let WhileStatement { body, .. } = &statements[1] else {
                             panic!("expected desugared while statement");
                         };
-                        let Statement::BlockStatement(body) = body.as_ref() else {
+                        let BlockStatement(body) = body.as_ref() else {
                             panic!("expected desugared while body block");
                         };
                         assert_eq!(body.len(), 2);
-                        let Statement::BlockStatement(original_body) = &body[0] else {
+                        let BlockStatement(original_body) = &body[0] else {
                             panic!("expected original block body");
                         };
                         assert_eq!(original_body.len(), 2);

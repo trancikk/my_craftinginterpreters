@@ -133,10 +133,10 @@ fn eval_statement_ref(env: &EnvRef, statement: &Statement) -> Result<ExecFlow, R
             }
             Ok(Normal(value))
         }
-        Statement::BlockStatement(statements) => {
+        Statement::BlockStatement(block) => {
             let mut value = None;
             let nested_env = Env::from_env(env);
-            for statement in statements {
+            for statement in &block.statements {
                 let result = eval_statement_ref(&nested_env, statement)?;
                 match result {
                     Normal(result_value) => value = result_value,
@@ -163,6 +163,9 @@ fn eval_statement_ref(env: &EnvRef, statement: &Statement) -> Result<ExecFlow, R
             Ok(Normal(None))
         }
         Statement::BreakStatement => Ok(Break),
+        Statement::FunctionStatement { name, args, body } => {
+            todo!()
+        }
     }
 }
 
