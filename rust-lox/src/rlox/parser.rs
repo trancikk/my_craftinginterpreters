@@ -179,7 +179,6 @@ impl<'src> Parser<'src> {
             }
         }
         self.consume(&RightParen, "Expect ')' after function args")?;
-        self.expect(&LeftBrace)?;
         let body = self.parse_block()?;
         Ok(Statement::FunctionStatement {
             args: params,
@@ -2000,9 +1999,10 @@ pub(crate) mod tests {
                     let Statement::WhileStatement { body, .. } = stmt else {
                         panic!("expected while statement");
                     };
-                    let Statement::BlockStatement(statements) = *body else {
+                    let Statement::BlockStatement(block) = *body else {
                         panic!("expected loop body block");
                     };
+                    let statements = block.statements;
                     let Statement::IfStatement { then, .. } = &statements[0] else {
                         panic!("expected if statement");
                     };
@@ -2014,15 +2014,17 @@ pub(crate) mod tests {
             #[test]
             fn preserves_break_before_desugared_for_increment() {
                 parsed_stmt!("for (var i = 0; i < 3; i = i + 1) break;", |stmt| {
-                    let BlockStatement(statements) = stmt else {
+                    let BlockStatement(block) = stmt else {
                         panic!("expected initializer block");
                     };
+                    let statements = block.statements;
                     let WhileStatement { body, .. } = &statements[1] else {
                         panic!("expected desugared while statement");
                     };
-                    let BlockStatement(body) = body.as_ref() else {
+                    let BlockStatement(body_block) = body.as_ref() else {
                         panic!("expected desugared while body block");
                     };
+                    let body = &body_block.statements;
 
                     assert!(matches!(body[0], Statement::BreakStatement));
                     assert!(matches!(body[1], Statement::ExprStatement(_)));
@@ -2175,9 +2177,10 @@ pub(crate) mod tests {
                     let (_, op, _) = as_binary(&expr);
                     assert_eq!(op, Less);
 
-                    let Statement::BlockStatement(statements) = *body else {
+                    let Statement::BlockStatement(block) = *body else {
                         panic!("expected block body");
                     };
+                    let statements = block.statements;
                     assert_eq!(statements.len(), 2);
                     assert!(matches!(statements[0], Statement::Print(_)));
                     assert!(matches!(statements[1], Statement::ExprStatement(_)));
@@ -2191,9 +2194,10 @@ pub(crate) mod tests {
                         panic!("expected while statement");
                     };
 
-                    let Statement::BlockStatement(statements) = *body else {
+                    let Statement::BlockStatement(block) = *body else {
                         panic!("expected block body");
                     };
+                    let statements = block.statements;
                     assert!(statements.is_empty());
                 });
             }
@@ -2260,9 +2264,10 @@ pub(crate) mod tests {
             #[test]
             fn desugars_all_clauses() {
                 parsed_stmt!("for (var i = 0; i < 3; i = i + 1) print i;", |stmt| {
-                    let Statement::BlockStatement(statements) = stmt else {
+                    let Statement::BlockStatement(block) = stmt else {
                         panic!("expected initializer block");
                     };
+                    let statements = block.statements;
                     assert_eq!(statements.len(), 2);
 
                     let Statement::DeclarationStatement(name, Some(initializer)) = &statements[0]
@@ -2283,9 +2288,10 @@ pub(crate) mod tests {
                     ));
                     assert_eq!(as_number(right), 3);
 
-                    let Statement::BlockStatement(body) = body.as_ref() else {
+                    let Statement::BlockStatement(body_block) = body.as_ref() else {
                         panic!("expected desugared while body block");
                     };
+                    let body = &body_block.statements;
                     assert_eq!(body.len(), 2);
                     assert!(matches!(body[0], Statement::Print(_)));
 
@@ -2308,9 +2314,10 @@ pub(crate) mod tests {
             #[test]
             fn desugars_expression_initializer() {
                 parsed_stmt!("for (i = 0; i < 2; i = i + 1) 1;", |stmt| {
-                    let Statement::BlockStatement(statements) = stmt else {
+                    let Statement::BlockStatement(block) = stmt else {
                         panic!("expected initializer block");
                     };
+                    let statements = block.statements;
                     assert_eq!(statements.len(), 2);
                     assert!(matches!(
                         statements[0],
@@ -2330,9 +2337,10 @@ pub(crate) mod tests {
             #[test]
             fn omitted_condition_defaults_to_true() {
                 parsed_stmt!("for (var i = 0;; i = i + 1) print i;", |stmt| {
-                    let Statement::BlockStatement(statements) = stmt else {
+                    let Statement::BlockStatement(block) = stmt else {
                         panic!("expected initializer block");
                     };
+                    let statements = block.statements;
                     let Statement::WhileStatement { expr, .. } = &statements[1] else {
                         panic!("expected desugared while statement");
                     };
@@ -2343,15 +2351,17 @@ pub(crate) mod tests {
             #[test]
             fn omitted_increment_does_not_add_increment_statement() {
                 parsed_stmt!("for (var ignored; keep_going;) print 1;", |stmt| {
-                    let Statement::BlockStatement(statements) = stmt else {
+                    let Statement::BlockStatement(block) = stmt else {
                         panic!("expected initializer block");
                     };
+                    let statements = block.statements;
                     let Statement::WhileStatement { body, .. } = &statements[1] else {
                         panic!("expected desugared while statement");
                     };
-                    let Statement::BlockStatement(body) = body.as_ref() else {
+                    let Statement::BlockStatement(body_block) = body.as_ref() else {
                         panic!("expected desugared while body block");
                     };
+                    let body = &body_block.statements;
                     assert_eq!(body.len(), 1);
                     assert!(matches!(body[0], Statement::Print(_)));
                 });
@@ -2364,9 +2374,10 @@ pub(crate) mod tests {
                         panic!("expected desugared while statement");
                     };
                     assert!(matches!(expr, Expr::SyntaxLiteral(Literal::True)));
-                    let BlockStatement(body) = *body else {
+                    let BlockStatement(body_block) = *body else {
                         panic!("expected desugared while body block");
                     };
+                    let body = body_block.statements;
                     assert_eq!(body.len(), 1);
                     assert!(matches!(body[0], Statement::Print(_)));
                 });
@@ -2377,19 +2388,22 @@ pub(crate) mod tests {
                 parsed_stmt!(
                     "for (var ignored; true; i = i + 1) { print i; print i + 1; }",
                     |stmt| {
-                        let BlockStatement(statements) = stmt else {
+                        let BlockStatement(block) = stmt else {
                             panic!("expected initializer block");
                         };
+                        let statements = block.statements;
                         let WhileStatement { body, .. } = &statements[1] else {
                             panic!("expected desugared while statement");
                         };
-                        let BlockStatement(body) = body.as_ref() else {
+                        let BlockStatement(body_block) = body.as_ref() else {
                             panic!("expected desugared while body block");
                         };
+                        let body = &body_block.statements;
                         assert_eq!(body.len(), 2);
-                        let BlockStatement(original_body) = &body[0] else {
+                        let BlockStatement(original_block) = &body[0] else {
                             panic!("expected original block body");
                         };
+                        let original_body = &original_block.statements;
                         assert_eq!(original_body.len(), 2);
                         assert!(matches!(body[1], Statement::ExprStatement(_)));
                     }
@@ -2399,15 +2413,17 @@ pub(crate) mod tests {
             #[test]
             fn supports_nested_for_statements() {
                 parsed_stmt!("for (var outer;;) for (var inner;;) print 1;", |stmt| {
-                    let Statement::BlockStatement(statements) = stmt else {
+                    let Statement::BlockStatement(block) = stmt else {
                         panic!("expected outer initializer block");
                     };
+                    let statements = block.statements;
                     let Statement::WhileStatement { body, .. } = &statements[1] else {
                         panic!("expected outer desugared while statement");
                     };
-                    let Statement::BlockStatement(body) = body.as_ref() else {
+                    let Statement::BlockStatement(body_block) = body.as_ref() else {
                         panic!("expected outer while body block");
                     };
+                    let body = &body_block.statements;
                     assert!(matches!(body[0], Statement::BlockStatement(_)));
                 });
             }
@@ -2417,15 +2433,17 @@ pub(crate) mod tests {
                 parsed_stmt!(
                     "for (var ignored;;) if (true) print 1; else print 2;",
                     |stmt| {
-                        let Statement::BlockStatement(statements) = stmt else {
+                        let Statement::BlockStatement(block) = stmt else {
                             panic!("expected initializer block");
                         };
+                        let statements = block.statements;
                         let Statement::WhileStatement { body, .. } = &statements[1] else {
                             panic!("expected desugared while statement");
                         };
-                        let Statement::BlockStatement(body) = body.as_ref() else {
+                        let Statement::BlockStatement(body_block) = body.as_ref() else {
                             panic!("expected desugared while body block");
                         };
+                        let body = &body_block.statements;
                         assert!(matches!(
                             body[0],
                             Statement::IfStatement {

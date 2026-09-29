@@ -343,6 +343,7 @@ mod tests {
     use super::*;
     use crate::rlox::parser::tests::parse_ok;
     use crate::rlox::parser::{
+        Block,
         Expr::{Binary, MissingLeftOperand, SyntaxLiteral, Ternary, Unary},
         Literal,
     };
@@ -1155,10 +1156,12 @@ mod tests {
         fn block_propagates_break_and_skips_remaining_statements() {
             let env = Env::new();
             evaluate(&env, "var value = 0;").unwrap();
-            let statement = Statement::BlockStatement(vec![
-                Statement::BreakStatement,
-                Statement::ExprStatement(parse_ok("value = 1")),
-            ]);
+            let statement = Statement::BlockStatement(Block {
+                statements: vec![
+                    Statement::BreakStatement,
+                    Statement::ExprStatement(parse_ok("value = 1")),
+                ],
+            });
 
             let result = eval_statement(&env, statement);
 
@@ -2389,7 +2392,9 @@ mod tests {
             #[test]
             fn block_local_does_not_escape() {
                 let env = Env::new();
-                let block = Statement::BlockStatement(vec![parse_statement_ok("var local = 1;")]);
+                let block = Statement::BlockStatement(Block {
+                    statements: vec![parse_statement_ok("var local = 1;")],
+                });
 
                 eval_statement(&env, block).unwrap();
 
@@ -2400,7 +2405,9 @@ mod tests {
             fn block_can_read_parent_binding() {
                 let env = Env::new();
                 Env::define(&env, "outer".to_string(), Value::Number(1.0));
-                let block = Statement::BlockStatement(vec![parse_statement_ok("outer;")]);
+                let block = Statement::BlockStatement(Block {
+                    statements: vec![parse_statement_ok("outer;")],
+                });
 
                 eval_statement(&env, block).unwrap();
             }
@@ -2409,7 +2416,9 @@ mod tests {
             fn assignment_in_block_updates_outer_binding() {
                 let env = Env::new();
                 Env::define(&env, "x".to_string(), Value::Number(1.0));
-                let block = Statement::BlockStatement(vec![parse_statement_ok("x = 2;")]);
+                let block = Statement::BlockStatement(Block {
+                    statements: vec![parse_statement_ok("x = 2;")],
+                });
 
                 eval_statement(&env, block).unwrap();
 
@@ -2420,10 +2429,12 @@ mod tests {
             fn block_shadowing_preserves_outer_binding() {
                 let env = Env::new();
                 Env::define(&env, "x".to_string(), Value::Number(1.0));
-                let block = Statement::BlockStatement(vec![
-                    parse_statement_ok("var x = 2;"),
-                    parse_statement_ok("x = 3;"),
-                ]);
+                let block = Statement::BlockStatement(Block {
+                    statements: vec![
+                        parse_statement_ok("var x = 2;"),
+                        parse_statement_ok("x = 3;"),
+                    ],
+                });
 
                 eval_statement(&env, block).unwrap();
 
@@ -2435,12 +2446,16 @@ mod tests {
                 let env = Env::new();
                 Env::define(&env, "x".to_string(), Value::Number(1.0));
                 Env::define(&env, "observed".to_string(), Value::Nil);
-                let inner = Statement::BlockStatement(vec![parse_statement_ok("x = 3;")]);
-                let outer = Statement::BlockStatement(vec![
-                    parse_statement_ok("var x = 2;"),
-                    inner,
-                    parse_statement_ok("observed = x;"),
-                ]);
+                let inner = Statement::BlockStatement(Block {
+                    statements: vec![parse_statement_ok("x = 3;")],
+                });
+                let outer = Statement::BlockStatement(Block {
+                    statements: vec![
+                        parse_statement_ok("var x = 2;"),
+                        inner,
+                        parse_statement_ok("observed = x;"),
+                    ],
+                });
 
                 eval_statement(&env, outer).unwrap();
 
