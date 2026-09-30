@@ -31,15 +31,16 @@ pub enum Literal {
 
 pub enum ExecFlow {
     Normal(Option<Value>),
-    Break,
+    Break(Token),
+    Return(Option<Value>)
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Block {
     pub statements: Vec<Statement>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Statement {
     Print(Expr),
     ExprStatement(Expr),
@@ -54,7 +55,7 @@ pub enum Statement {
         expr: Expr,
         body: Box<Statement>,
     },
-    BreakStatement,
+    BreakStatement(Token),
     FunctionStatement {
         args: Vec<Token>,
         name: Token,
@@ -155,7 +156,7 @@ impl<'src> Parser<'src> {
                             "Break outside of a loop!".to_string(),
                         ))
                     } else {
-                        Ok(Statement::BreakStatement)
+                        Ok(Statement::BreakStatement(next_token))
                     }
                 }
                 _ => self.parse_expr_statement(),

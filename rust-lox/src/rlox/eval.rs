@@ -3,7 +3,7 @@ use crate::rlox::eval::RuntimeError::{IdentifierNotInitialized, IncorrectOperato
 use crate::rlox::eval::Value::{Boolean, CallableValue, Str, Undefined};
 use crate::rlox::parser::ExecFlow::{Break, Normal};
 use crate::rlox::parser::{
-    ExecFlow, Expr,
+    Block, ExecFlow, Expr,
     Literal::{False, FloatNumber, Nil, Number, StringL, True},
     Statement,
 };
@@ -42,8 +42,9 @@ impl PartialEq for Value {
 #[derive(Debug, PartialEq)]
 pub struct LoxFunction {
     pub name: String,
-    pub args: Vec<String>,
+    pub params: Vec<String>,
     pub env: EnvRef,
+    block: Block,
 }
 
 pub trait Callable: Debug {
@@ -55,7 +56,23 @@ pub trait Callable: Debug {
 
 impl Callable for LoxFunction {
     fn call(&self, args: Vec<Value>) -> Result<Value, RuntimeError> {
-        todo!()
+        for (i, var) in self.params.iter().enumerate() {
+            Env::define(&self.env, var.clone(), args[i].clone())
+        }
+        let value = eval_block_ref(&self.env, &self.block)?;
+        match value {
+            Normal(value) | ExecFlow::Return(value) => Ok({
+                if let Some(value) = value {
+                    value
+                } else {
+                    Value::Nil
+                }
+            }),
+            Break(token) => Err(RuntimeError::EvaluationError(
+                String::from("Unexpected break returned from function"),
+                token,
+            )),
+        }
     }
 
     fn get_name(&self) -> String {
@@ -63,7 +80,7 @@ impl Callable for LoxFunction {
     }
 
     fn get_arity(&self) -> u8 {
-        self.args.len() as u8
+        self.params.len() as u8
     }
 }
 impl Display for Value {
@@ -106,6 +123,18 @@ pub fn eval_statement(env: &EnvRef, statement: Statement) -> Result<ExecFlow, Ru
     eval_statement_ref(env, &statement)
 }
 
+fn eval_block_ref(env: &EnvRef, block: &Block) -> Result<ExecFlow, RuntimeError> {
+    let mut value = None;
+    for statement in &block.statements {
+        let result = eval_statement_ref(&env, statement)?;
+        match result {
+            Normal(result_value) => value = result_value,
+            _ => return Ok(result),
+        }
+    }
+    Ok(Normal(value))
+}
+
 fn eval_statement_ref(env: &EnvRef, statement: &Statement) -> Result<ExecFlow, RuntimeError> {
     match statement {
         Statement::IfStatement {
@@ -124,8 +153,8 @@ fn eval_statement_ref(env: &EnvRef, statement: &Statement) -> Result<ExecFlow, R
         }
         Statement::WhileStatement { body, expr } => {
             let mut value = None;
-            while is_truthy(&eval_expr_ref(env, expr)?) {
-                let result = eval_statement_ref(env, body)?;
+            while is_truthy(&eval_expr_ref(&env, expr)?) {
+                let result = eval_statement_ref(&env, body)?;
                 match result {
                     Normal(result_value) => value = result_value,
                     _ => return Ok(Normal(value)),
@@ -134,16 +163,8 @@ fn eval_statement_ref(env: &EnvRef, statement: &Statement) -> Result<ExecFlow, R
             Ok(Normal(value))
         }
         Statement::BlockStatement(block) => {
-            let mut value = None;
             let nested_env = Env::from_env(env);
-            for statement in &block.statements {
-                let result = eval_statement_ref(&nested_env, statement)?;
-                match result {
-                    Normal(result_value) => value = result_value,
-                    _ => return Ok(result),
-                }
-            }
-            Ok(Normal(value))
+            eval_block_ref(&nested_env, block)
         }
         Statement::DeclarationStatement(name, expr) => {
             let initial_value = match expr {
@@ -162,7 +183,7 @@ fn eval_statement_ref(env: &EnvRef, statement: &Statement) -> Result<ExecFlow, R
             println!("{value}");
             Ok(Normal(None))
         }
-        Statement::BreakStatement => Ok(Break),
+        Statement::BreakStatement(token) => Ok(Break(token.to_owned())),
         Statement::FunctionStatement { name, args, body } => {
             todo!()
         }
