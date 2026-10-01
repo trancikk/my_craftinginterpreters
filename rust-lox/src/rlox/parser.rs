@@ -6,20 +6,20 @@ use crate::rlox::parser::Expr::{
     AssignmentExpression, Binary, Grouping, MissingLeftOperand, Ternary, Unary,
 };
 use crate::rlox::parser::Statement::{
-    BlockStatement, DeclarationStatement, IfStatement, WhileStatement,
+    BlockStatement, DeclarationStatement, IfStatement, ReturnStatement, WhileStatement,
 };
 use crate::rlox::scanner::Scanner;
 use crate::rlox::token::TokenType::{
     And, Bang, BangEqual, Break, Colon, Comma, EOF, Equal, EqualEqual, False, FloatNumber, For,
     Fun, Greater, GreaterEqual, Identifier, If, LeftBrace, LeftParen, Less, LessEqual, Minus, Nil,
-    Number, Or, Plus, Print, Question, RightBrace, RightParen, Semicolon, Slash, Star, StringToken,
-    True, Var, While,
+    Number, Or, Plus, Print, Question, Return, RightBrace, RightParen, Semicolon, Slash, Star,
+    StringToken, True, Var, While,
 };
 use crate::rlox::token::{Token, TokenType};
 
 const MAX_ARGS: u8 = 254;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Literal {
     Number(u64),
     FloatNumber(f64),
@@ -32,15 +32,15 @@ pub enum Literal {
 pub enum ExecFlow {
     Normal(Option<Value>),
     Break(Token),
-    Return(Option<Value>)
+    Return(Option<Value>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Block {
     pub statements: Vec<Statement>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Statement {
     Print(Expr),
     ExprStatement(Expr),
@@ -56,6 +56,7 @@ pub enum Statement {
         body: Box<Statement>,
     },
     BreakStatement(Token),
+    ReturnStatement(Token, Option<Expr>),
     FunctionStatement {
         args: Vec<Token>,
         name: Token,
@@ -63,7 +64,7 @@ pub enum Statement {
     },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Expr {
     SyntaxLiteral(Literal),
     IdentifierExpression(Token),
@@ -146,6 +147,7 @@ impl<'src> Parser<'src> {
                 LeftBrace => self.parse_block_statement(),
                 Var => self.parse_declarations(),
                 Print => self.print_statement(),
+                Return => self.return_statement(),
                 Break => {
                     let next_token = self.advance()?;
                     self.consume_statement_end()?;
@@ -165,6 +167,17 @@ impl<'src> Parser<'src> {
         .inspect_err(|_| {
             let _ = self.synchronize();
         })
+    }
+
+    fn return_statement(&mut self) -> Result<Statement, RloxError> {
+        let token = self.consume(&Return, "Expect Return keyword for return")?;
+        let expr = if !self.check_and_advance(&Semicolon) {
+            Some(self.parse_expression()?)
+        } else {
+            None
+        };
+        self.consume_statement_end()?;
+        Ok(ReturnStatement(token, expr))
     }
 
     fn parse_fun(&mut self) -> Result<Statement, RloxError> {
@@ -384,17 +397,17 @@ impl<'src> Parser<'src> {
             let expr = self.parse_expression()?;
             return Self::produce_and_report_binary_error(expr, token);
         }
-        self.loop_inside_same_level(&[Comma], Self::assignment)
+        self.loop_inside_same_level(&[Comma], Self::parse_assignment)
     }
 
-    fn assignment(&mut self) -> Result<Expr, RloxError> {
+    fn parse_assignment(&mut self) -> Result<Expr, RloxError> {
         let l_value = self.ternary()?;
 
         if self.check(&Equal) {
             match l_value {
                 Expr::IdentifierExpression(token) => {
                     self.advance()?;
-                    let r_value = self.assignment()?;
+                    let r_value = self.parse_assignment()?;
                     Ok(AssignmentExpression {
                         left: token,
                         right: Box::new(r_value),
@@ -420,7 +433,7 @@ impl<'src> Parser<'src> {
                 &Colon,
                 "Expected ':' in a ternary operator after the predicate",
             )?;
-            let right = self.assignment()?;
+            let right = self.parse_assignment()?;
             expr = Ternary {
                 predicate: Box::new(expr),
                 left: Box::new(left),
@@ -505,7 +518,6 @@ impl<'src> Parser<'src> {
                     break;
                 }
             }
-            self.consume(&RightParen, "Expected to have ) after function arguments")?;
         }
 
         Ok(expr)
@@ -517,7 +529,7 @@ impl<'src> Parser<'src> {
             if self.check(&RightParen) {
                 break;
             }
-            let expr = self.parse_expression()?;
+            let expr = self.parse_assignment()?;
             args.push(expr);
             if args.len() == MAX_ARGS as usize {
                 let next_token = self.peek()?;
@@ -1989,8 +2001,12 @@ pub(crate) mod tests {
                     let Statement::WhileStatement { body, .. } = stmt else {
                         panic!("expected while statement");
                     };
+                    let Statement::BreakStatement(token) = *body else {
+                        panic!("expected break statement");
+                    };
 
-                    assert!(matches!(*body, Statement::BreakStatement));
+                    assert_eq!(token.token_type, TokenType::Break);
+                    assert_eq!(token.lexeme, "break");
                 });
             }
 
@@ -2007,8 +2023,12 @@ pub(crate) mod tests {
                     let Statement::IfStatement { then, .. } = &statements[0] else {
                         panic!("expected if statement");
                     };
+                    let Statement::BreakStatement(token) = then.as_ref() else {
+                        panic!("expected break statement");
+                    };
 
-                    assert!(matches!(then.as_ref(), Statement::BreakStatement));
+                    assert_eq!(token.token_type, TokenType::Break);
+                    assert_eq!(token.lexeme, "break");
                 });
             }
 
@@ -2026,8 +2046,12 @@ pub(crate) mod tests {
                         panic!("expected desugared while body block");
                     };
                     let body = &body_block.statements;
+                    let Statement::BreakStatement(token) = &body[0] else {
+                        panic!("expected break statement");
+                    };
 
-                    assert!(matches!(body[0], Statement::BreakStatement));
+                    assert_eq!(token.token_type, TokenType::Break);
+                    assert_eq!(token.lexeme, "break");
                     assert!(matches!(body[1], Statement::ExprStatement(_)));
                 });
             }

@@ -153,11 +153,12 @@ fn eval_statement_ref(env: &EnvRef, statement: &Statement) -> Result<ExecFlow, R
         }
         Statement::WhileStatement { body, expr } => {
             let mut value = None;
-            while is_truthy(&eval_expr_ref(&env, expr)?) {
-                let result = eval_statement_ref(&env, body)?;
+            while is_truthy(&eval_expr_ref(env, expr)?) {
+                let result = eval_statement_ref(env, body)?;
                 match result {
                     Normal(result_value) => value = result_value,
-                    _ => return Ok(Normal(value)),
+                    ExecFlow::Return(value) => return Ok(Normal(value)),
+                    Break(..) => return Ok(Normal(value)),
                 }
             }
             Ok(Normal(value))
@@ -185,7 +186,25 @@ fn eval_statement_ref(env: &EnvRef, statement: &Statement) -> Result<ExecFlow, R
         }
         Statement::BreakStatement(token) => Ok(Break(token.to_owned())),
         Statement::FunctionStatement { name, args, body } => {
-            todo!()
+            Env::define(
+                env,
+                name.lexeme.clone(),
+                CallableValue(Rc::new(LoxFunction {
+                    name: name.lexeme.clone(),
+                    block: body.clone(),
+                    params: args.iter().map(|arg| arg.lexeme.clone()).collect(),
+                    env: Env::from_env(env),
+                })),
+            );
+            Ok(Normal(None))
+        }
+        Statement::ReturnStatement(token, expr) => {
+            let result = if let Some(expr) = expr {
+                Some(eval_expr(env, expr.clone())?)
+            } else {
+                None
+            };
+            Ok(ExecFlow::Return(result))
         }
     }
 }
@@ -939,7 +958,8 @@ mod tests {
         fn eval_if(statement: Statement) -> Result<Option<Value>, RuntimeError> {
             eval_statement(&Env::new(), statement).map(|flow| match flow {
                 Normal(value) => value,
-                Break => panic!("expected normal execution, got break"),
+                Break(_) => panic!("expected normal execution, got break"),
+                ExecFlow::Return(_) => panic!("expected normal execution, got return"),
             })
         }
 
@@ -1042,7 +1062,10 @@ mod tests {
                 .unwrap_or_else(|e| panic!("evaluation failed for {input:?}: {e}"))
             {
                 Normal(value) => value,
-                Break => panic!("expected normal execution for {input:?}, got break"),
+                Break(_) => panic!("expected normal execution for {input:?}, got break"),
+                ExecFlow::Return(_) => {
+                    panic!("expected normal execution for {input:?}, got return")
+                }
             }
         }
 
@@ -1166,11 +1189,19 @@ mod tests {
                 .unwrap_or_else(|e| panic!("lookup failed for {identifier:?}: {e}"))
         }
 
+        fn break_statement() -> Statement {
+            Statement::BreakStatement(Token::new(TokenType::Break, "break".to_string(), 1))
+        }
+
         #[test]
         fn break_statement_produces_break_flow() {
-            let result = eval_statement(&Env::new(), Statement::BreakStatement);
+            let result = eval_statement(&Env::new(), break_statement());
 
-            assert!(matches!(result, Ok(Break)));
+            let Ok(Break(token)) = result else {
+                panic!("expected break flow");
+            };
+            assert_eq!(token.token_type, TokenType::Break);
+            assert_eq!(token.lexeme, "break");
         }
 
         #[test]
@@ -1179,14 +1210,14 @@ mod tests {
             evaluate(&env, "var value = 0;").unwrap();
             let statement = Statement::BlockStatement(Block {
                 statements: vec![
-                    Statement::BreakStatement,
+                    break_statement(),
                     Statement::ExprStatement(parse_ok("value = 1")),
                 ],
             });
 
             let result = eval_statement(&env, statement);
 
-            assert!(matches!(result, Ok(Break)));
+            assert!(matches!(result, Ok(Break(token)) if token.lexeme == "break"));
             assert_number(value_of(&env, "value"), 0.0);
         }
 
@@ -1194,20 +1225,20 @@ mod tests {
         fn selected_if_branch_propagates_break() {
             let statement = Statement::IfStatement {
                 expr: SyntaxLiteral(True),
-                then: Box::new(Statement::BreakStatement),
+                then: Box::new(break_statement()),
                 else_stmnt: None,
             };
 
             let result = eval_statement(&Env::new(), statement);
 
-            assert!(matches!(result, Ok(Break)));
+            assert!(matches!(result, Ok(Break(token)) if token.lexeme == "break"));
         }
 
         #[test]
         fn unselected_break_branch_does_not_interrupt_execution() {
             let statement = Statement::IfStatement {
                 expr: SyntaxLiteral(False),
-                then: Box::new(Statement::BreakStatement),
+                then: Box::new(break_statement()),
                 else_stmnt: Some(Box::new(Statement::ExprStatement(parse_ok("42")))),
             };
 
