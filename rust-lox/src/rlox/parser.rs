@@ -3807,4 +3807,311 @@ pub(crate) mod tests {
             assert!(result.is_err());
         }
     }
+
+    mod functions {
+        use super::*;
+
+        fn callable(expr: &Expr) -> (&Expr, &Token, &[Expr]) {
+            let Expr::CallableExpression {
+                callee,
+                paren,
+                args,
+            } = expr
+            else {
+                panic!("expected call expression, got {expr:?}");
+            };
+            (callee, paren, args)
+        }
+
+        fn identifier(expr: &Expr) -> &str {
+            let Expr::IdentifierExpression(token) = expr else {
+                panic!("expected identifier expression, got {expr:?}");
+            };
+            &token.lexeme
+        }
+
+        mod declarations {
+            use super::*;
+
+            #[test]
+            fn parses_name_parameters_and_body() {
+                let statement = parse_statement_ok("fun add(left, right) { return left + right; }");
+                let Statement::FunctionStatement { name, args, body } = statement else {
+                    panic!("expected function declaration");
+                };
+
+                assert_eq!(name.lexeme, "add");
+                assert_eq!(
+                    args.iter()
+                        .map(|arg| arg.lexeme.as_str())
+                        .collect::<Vec<_>>(),
+                    ["left", "right"]
+                );
+                assert!(matches!(
+                    body.statements.as_slice(),
+                    [Statement::ReturnStatement(_, Some(Expr::Binary { .. }))]
+                ));
+            }
+
+            #[test]
+            fn parses_empty_body() {
+                let statement = parse_statement_ok("fun noop(unused) {}");
+                let Statement::FunctionStatement { body, .. } = statement else {
+                    panic!("expected function declaration");
+                };
+
+                assert!(body.statements.is_empty());
+            }
+
+            #[test]
+            fn rejects_duplicate_parameter_names() {
+                parse_statement_fails("fun pick(value, value) { return value; }");
+            }
+
+            #[test]
+            fn accepts_255_parameters() {
+                let params = (0..255)
+                    .map(|index| format!("p{index}"))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                let statement = parse_statement_ok(&format!("fun many({params}) {{}}"));
+                let Statement::FunctionStatement { args, .. } = statement else {
+                    panic!("expected function declaration");
+                };
+
+                assert_eq!(args.len(), 255);
+            }
+
+            #[test]
+            fn rejects_256_parameters() {
+                let params = (0..256)
+                    .map(|index| format!("p{index}"))
+                    .collect::<Vec<_>>()
+                    .join(",");
+
+                parse_statement_fails(&format!("fun many({params}) {{}}"));
+            }
+
+            #[test]
+            fn accepts_zero_parameter_declaration() {
+                let statement = parse_statement_ok("fun clockwork() {}");
+                let Statement::FunctionStatement { args, .. } = statement else {
+                    panic!("expected function declaration");
+                };
+
+                assert!(args.is_empty());
+            }
+
+            #[test]
+            fn rejects_missing_name() {
+                parse_statement_fails("fun (value) {}");
+            }
+
+            #[test]
+            fn rejects_missing_left_parenthesis() {
+                parse_statement_fails("fun identity value) { return value; }");
+            }
+
+            #[test]
+            fn rejects_missing_parameter_separator() {
+                parse_statement_fails("fun add(left right) { return left + right; }");
+            }
+
+            #[test]
+            fn rejects_non_identifier_parameter() {
+                parse_statement_fails("fun bad(123) {}");
+            }
+
+            #[test]
+            fn rejects_trailing_parameter_comma() {
+                parse_statement_fails("fun identity(value,) { return value; }");
+            }
+
+            #[test]
+            fn rejects_missing_right_parenthesis() {
+                parse_statement_fails("fun identity(value { return value; }");
+            }
+
+            #[test]
+            fn rejects_missing_body() {
+                parse_statement_fails("fun identity(value) return value;");
+            }
+
+            #[test]
+            fn rejects_unterminated_body() {
+                parse_statement_fails("fun identity(value) { return value;");
+            }
+        }
+
+        mod calls {
+            use super::*;
+
+            #[test]
+            fn parses_zero_argument_call() {
+                let expr = parse_ok("clock()");
+                let (callee, paren, args) = callable(&expr);
+
+                assert_eq!(identifier(callee), "clock");
+                assert_eq!(paren.token_type, RightParen);
+                assert!(args.is_empty());
+            }
+
+            #[test]
+            fn parses_multiple_arguments_in_source_order() {
+                let expr = parse_ok("combine(1, 2 + 3, \"last\")");
+                let (callee, _, args) = callable(&expr);
+
+                assert_eq!(identifier(callee), "combine");
+                assert_eq!(args.len(), 3);
+                assert_eq!(as_number(&args[0]), 1);
+                assert!(matches!(args[1], Expr::Binary { .. }));
+                assert_eq!(as_string(&args[2]), "last");
+            }
+
+            #[test]
+            fn call_binds_tighter_than_arithmetic() {
+                let expr = parse_ok("identity(2) * 3");
+                let (left, operator, right) = as_binary(&expr);
+
+                assert_eq!(operator, Star);
+                assert_eq!(identifier(callable(left).0), "identity");
+                assert_eq!(as_number(right), 3);
+            }
+
+            #[test]
+            fn grouped_expression_can_be_called() {
+                let expr = parse_ok("(identity)(42)");
+                let (callee, _, args) = callable(&expr);
+
+                assert!(matches!(callee, Expr::Grouping { .. }));
+                assert_eq!(as_number(&args[0]), 42);
+            }
+
+            #[test]
+            fn call_can_be_the_final_argument_of_another_call() {
+                let expr = parse_ok("outer(1, inner(2))");
+                let (_, _, outer_args) = callable(&expr);
+                let (inner, _, inner_args) = callable(&outer_args[1]);
+
+                assert_eq!(identifier(inner), "inner");
+                assert_eq!(as_number(&inner_args[0]), 2);
+            }
+
+            #[test]
+            fn rejects_trailing_argument_comma() {
+                parse_statement_fails("identity(42,);");
+            }
+
+            #[test]
+            fn accepts_255_arguments() {
+                let arguments = std::iter::repeat_n("1", 255).collect::<Vec<_>>().join(",");
+                let expr = parse_ok(&format!("many({arguments})"));
+
+                assert_eq!(callable(&expr).2.len(), 255);
+            }
+
+            #[test]
+            fn rejects_256_arguments() {
+                let arguments = std::iter::repeat_n("1", 256).collect::<Vec<_>>().join(",");
+
+                parse_statement_fails(&format!("many({arguments});"));
+            }
+
+            #[test]
+            fn rejects_missing_right_parenthesis() {
+                parse_statement_fails("identity(42;");
+            }
+
+            #[test]
+            fn rejects_missing_argument_before_comma() {
+                parse_statement_fails("identity(,42);");
+            }
+
+            #[test]
+            fn parses_chained_invocation() {
+                let expr = parse_ok("factory(1)(2)");
+                let (first_call, _, second_args) = callable(&expr);
+                let (factory, _, first_args) = callable(first_call);
+
+                assert_eq!(identifier(factory), "factory");
+                assert_eq!(as_number(&first_args[0]), 1);
+                assert_eq!(as_number(&second_args[0]), 2);
+            }
+
+            #[test]
+            fn nested_call_can_precede_another_argument() {
+                let expr = parse_ok("outer(inner(1), 2)");
+                let (outer, _, outer_args) = callable(&expr);
+                let (inner, _, inner_args) = callable(&outer_args[0]);
+
+                assert_eq!(identifier(outer), "outer");
+                assert_eq!(outer_args.len(), 2);
+                assert_eq!(identifier(inner), "inner");
+                assert_eq!(as_number(&inner_args[0]), 1);
+                assert_eq!(as_number(&outer_args[1]), 2);
+            }
+        }
+
+        mod returns {
+            use super::*;
+
+            #[test]
+            fn parses_return_value_and_keyword_token() {
+                let statement = parse_statement_ok("return 1 + 2;");
+                let Statement::ReturnStatement(token, Some(expr)) = statement else {
+                    panic!("expected return statement with a value");
+                };
+
+                assert_eq!(token.token_type, Return);
+                assert_eq!(token.lexeme, "return");
+                assert!(matches!(expr, Expr::Binary { .. }));
+            }
+
+            #[test]
+            fn parses_return_nested_in_function_control_flow() {
+                let statement =
+                    parse_statement_ok("fun choose(value) { if (value) return 1; else return 2; }");
+                let Statement::FunctionStatement { body, .. } = statement else {
+                    panic!("expected function declaration");
+                };
+
+                assert!(matches!(
+                    body.statements.as_slice(),
+                    [Statement::IfStatement {
+                        then,
+                        else_stmnt: Some(_),
+                        ..
+                    }] if matches!(then.as_ref(), Statement::ReturnStatement(_, Some(_)))
+                ));
+            }
+
+            #[test]
+            fn rejects_top_level_return() {
+                parse_statement_fails("return 42;");
+            }
+
+            #[test]
+            fn parses_bare_return_inside_function() {
+                let statement = parse_statement_ok("fun noop(unused) { return; }");
+                let Statement::FunctionStatement { body, .. } = statement else {
+                    panic!("expected function declaration");
+                };
+
+                assert!(matches!(
+                    body.statements.as_slice(),
+                    [Statement::ReturnStatement(_, None)]
+                ));
+            }
+
+            #[test]
+            fn rejects_return_without_semicolon() {
+                parse_statement_fails("return 42");
+            }
+
+            #[test]
+            fn rejects_return_with_missing_expression() {
+                parse_statement_fails("return +;");
+            }
+        }
+    }
 }

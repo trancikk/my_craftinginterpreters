@@ -2561,4 +2561,357 @@ mod tests {
             }
         }
     }
+
+    mod functions {
+        use super::*;
+        use crate::rlox::interpreter::RloxError;
+        use crate::rlox::parser::Parser;
+        use crate::rlox::scanner::Scanner;
+
+        fn evaluate_script(env: &EnvRef, source: &str) -> Result<Vec<ExecFlow>, RuntimeError> {
+            let mut parser = Parser::new(Scanner::new(source.lines()));
+            let mut results = Vec::new();
+
+            loop {
+                match parser.parse_statements() {
+                    Ok(statement) => results.push(eval_statement(env, statement)?),
+                    Err(RloxError::EOF) => return Ok(results),
+                    Err(error) => panic!("parse failed for {source:?}: {error}"),
+                }
+            }
+        }
+
+        fn declare(env: &EnvRef, source: &str) {
+            evaluate_script(env, source)
+                .unwrap_or_else(|error| panic!("evaluation failed for {source:?}: {error}"));
+        }
+
+        fn eval_in(env: &EnvRef, source: &str) -> Result<Value, RuntimeError> {
+            eval_expr(env, parse_ok(source))
+        }
+
+        fn number_in(env: &EnvRef, source: &str) -> f64 {
+            let value = eval_in(env, source)
+                .unwrap_or_else(|error| panic!("evaluation failed for {source:?}: {error}"));
+            let Value::Number(number) = value else {
+                panic!("expected number for {source:?}, got {value:?}");
+            };
+            number
+        }
+
+        mod declarations_and_calls {
+            use super::*;
+
+            #[test]
+            fn declaration_binds_named_callable_with_arity() {
+                let env = Env::new();
+                declare(&env, "fun add(left, right) { return left + right; }");
+
+                let Some(CallableValue(function)) = Env::get(&env, "add") else {
+                    panic!("expected add to be bound to a callable");
+                };
+                assert_eq!(function.get_name(), "add");
+                assert_eq!(function.get_arity(), 2);
+                assert_eq!(CallableValue(function).to_string(), "<fn add>");
+            }
+
+            #[test]
+            fn parameters_are_bound_to_arguments() {
+                let env = Env::new();
+                declare(&env, "fun add(left, right) { return left + right; }");
+
+                assert_eq!(number_in(&env, "add(20, 22)"), 42.0);
+            }
+
+            #[test]
+            fn supports_number_string_boolean_and_nil_returns() {
+                let env = Env::new();
+                declare(
+                    &env,
+                    r#"
+                    fun number_value(unused) { return 42; }
+                    fun string_value(unused) { return "lox"; }
+                    fun boolean_value(unused) { return true; }
+                    fun nil_value(unused) { return nil; }
+                    "#,
+                );
+
+                assert_number(eval_in(&env, "number_value(nil)").unwrap(), 42.0);
+                assert_str(eval_in(&env, "string_value(nil)").unwrap(), "lox");
+                assert_bool(eval_in(&env, "boolean_value(nil)").unwrap(), true);
+                assert_nil(eval_in(&env, "nil_value(nil)").unwrap());
+            }
+
+            #[test]
+            fn empty_body_returns_nil() {
+                let env = Env::new();
+                declare(&env, "fun noop() {}");
+
+                assert_nil(eval_in(&env, "noop()").unwrap());
+            }
+
+            #[test]
+            fn bare_return_returns_nil() {
+                let env = Env::new();
+                declare(&env, "fun noop() { return; }");
+
+                assert_nil(eval_in(&env, "noop()").unwrap());
+            }
+
+            #[test]
+            fn explicit_return_skips_remaining_body_statements() {
+                let env = Env::new();
+                declare(
+                    &env,
+                    "var touched = false;
+                     fun stop(value) { return value; touched = true; }",
+                );
+
+                assert_eq!(number_in(&env, "stop(42)"), 42.0);
+                assert_bool(eval_in(&env, "touched").unwrap(), false);
+            }
+
+            #[test]
+            fn return_propagates_through_if_and_nested_block() {
+                let env = Env::new();
+                declare(
+                    &env,
+                    "fun choose(condition) {
+                        if (condition) { { return 1; } }
+                        return 2;
+                    }",
+                );
+
+                assert_eq!(number_in(&env, "choose(true)"), 1.0);
+                assert_eq!(number_in(&env, "choose(false)"), 2.0);
+            }
+
+            #[test]
+            fn arguments_are_evaluated_left_to_right() {
+                let env = Env::new();
+                declare(
+                    &env,
+                    "var counter = 0;
+                     fun pair(left, right) { return left * 10 + right; }",
+                );
+
+                assert_eq!(
+                    number_in(&env, "pair(counter = counter + 1, counter = counter + 1)"),
+                    12.0
+                );
+                assert_eq!(number_in(&env, "counter"), 2.0);
+            }
+
+            #[test]
+            fn function_value_can_be_aliased_and_called() {
+                let env = Env::new();
+                declare(
+                    &env,
+                    "fun identity(value) { return value; }
+                     var alias = identity;",
+                );
+
+                assert_eq!(number_in(&env, "alias(42)"), 42.0);
+            }
+
+            #[test]
+            fn closure_captures_and_mutates_enclosing_binding() {
+                let env = Env::new();
+                declare(
+                    &env,
+                    "fun make_counter(seed) {
+                        fun increment(amount) {
+                            seed = seed + amount;
+                            return seed;
+                        }
+                        return increment;
+                     }
+                     var counter = make_counter(10);",
+                );
+
+                assert_eq!(number_in(&env, "counter(2)"), 12.0);
+                assert_eq!(number_in(&env, "counter(3)"), 15.0);
+            }
+
+            #[test]
+            fn supports_simple_recursion() {
+                let env = Env::new();
+                declare(
+                    &env,
+                    "fun factorial(value) {
+                        if (value <= 1) return 1;
+                        return value * factorial(value - 1);
+                    }",
+                );
+
+                assert_eq!(number_in(&env, "factorial(5)"), 120.0);
+            }
+
+            #[test]
+            fn parameter_shadows_global_without_overwriting_it() {
+                let env = Env::new();
+                declare(
+                    &env,
+                    "var value = 10;
+                     fun change(value) { value = 20; return value; }",
+                );
+
+                assert_eq!(number_in(&env, "change(1)"), 20.0);
+                assert_eq!(number_in(&env, "value"), 10.0);
+            }
+        }
+
+        mod runtime_errors {
+            use super::*;
+
+            #[test]
+            fn too_few_arguments_is_an_error() {
+                let env = Env::new();
+                declare(&env, "fun add(left, right) { return left + right; }");
+
+                let Err(RuntimeError::EvaluationError(message, token)) = eval_in(&env, "add(1)")
+                else {
+                    panic!("expected arity error");
+                };
+                assert!(message.contains("Expected 2 arguments but got 1"));
+                assert_eq!(token.token_type, TokenType::RightParen);
+            }
+
+            #[test]
+            fn too_many_arguments_is_an_error() {
+                let env = Env::new();
+                declare(&env, "fun identity(value) { return value; }");
+
+                let Err(RuntimeError::EvaluationError(message, _)) =
+                    eval_in(&env, "identity(1, 2)")
+                else {
+                    panic!("expected arity error");
+                };
+                assert!(message.contains("Expected 1 arguments but got 2"));
+            }
+
+            #[test]
+            fn calling_non_callable_value_is_an_error() {
+                let env = Env::new();
+                declare(&env, "var value = 42;");
+
+                let Err(RuntimeError::EvaluationError(message, _)) = eval_in(&env, "value()")
+                else {
+                    panic!("expected non-callable error");
+                };
+                assert!(message.contains("is not callable"));
+            }
+
+            #[test]
+            fn missing_callee_is_an_identifier_error() {
+                let env = Env::new();
+
+                assert!(matches!(
+                    eval_in(&env, "missing(1)"),
+                    Err(RuntimeError::IdentifierNotFound(token)) if token.lexeme == "missing"
+                ));
+            }
+
+            #[test]
+            fn argument_error_prevents_function_body_execution() {
+                let env = Env::new();
+                declare(
+                    &env,
+                    "var touched = false;
+                     fun touch(value) { touched = true; return value; }",
+                );
+
+                assert!(matches!(
+                    eval_in(&env, "touch(missing)"),
+                    Err(RuntimeError::IdentifierNotFound(_))
+                ));
+                assert_bool(eval_in(&env, "touched").unwrap(), false);
+            }
+
+            #[test]
+            fn function_body_error_is_propagated() {
+                let env = Env::new();
+                declare(&env, "fun fail(unused) { return missing; }");
+
+                assert!(matches!(
+                    eval_in(&env, "fail(nil)"),
+                    Err(RuntimeError::IdentifierNotFound(token)) if token.lexeme == "missing"
+                ));
+            }
+        }
+
+        mod book_lox_compatibility {
+            use super::*;
+
+            #[test]
+            fn falling_off_end_returns_nil() {
+                let env = Env::new();
+                declare(&env, "fun increment(value) { value + 1; }");
+
+                assert_nil(eval_in(&env, "increment(41)").unwrap());
+            }
+
+            #[test]
+            fn return_inside_while_exits_function() {
+                let env = Env::new();
+                declare(
+                    &env,
+                    "fun loop_return(unused) {
+                        while (true) return 1;
+                        return 2;
+                     }",
+                );
+
+                assert_eq!(number_in(&env, "loop_return(nil)"), 1.0);
+            }
+
+            #[test]
+            fn separate_calls_have_independent_activation_environments() {
+                let env = Env::new();
+                declare(
+                    &env,
+                    "fun make_counter(seed) {
+                        fun increment(amount) {
+                            seed = seed + amount;
+                            return seed;
+                        }
+                        return increment;
+                     }",
+                );
+                declare(&env, "var first = make_counter(0);");
+                declare(&env, "var second = make_counter(100);");
+
+                assert_eq!(number_in(&env, "first(1)"), 1.0);
+                assert_eq!(number_in(&env, "second(1)"), 101.0);
+                assert_eq!(number_in(&env, "first(1)"), 2.0);
+            }
+
+            #[test]
+            fn native_clock_returns_seconds_and_has_native_display() {
+                use std::time::{SystemTime, UNIX_EPOCH};
+
+                let env = Env::new();
+                crate::rlox::natives::define_clock(env.clone());
+                let before = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs_f64();
+
+                let value = eval_in(&env, "clock()").unwrap();
+                let after = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs_f64();
+                let Value::Number(timestamp) = value else {
+                    panic!("expected clock() to return a number");
+                };
+
+                assert!(
+                    (before..=after).contains(&timestamp),
+                    "clock() returned {timestamp}, expected seconds in {before}..={after}"
+                );
+                assert_eq!(Env::get(&env, "clock").unwrap().to_string(), "<native fn>");
+            }
+        }
+    }
 }
