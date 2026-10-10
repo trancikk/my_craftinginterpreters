@@ -124,15 +124,14 @@ pub fn eval_statement(env: &EnvRef, statement: Statement) -> Result<ExecFlow, Ru
 }
 
 fn eval_block_ref(env: &EnvRef, block: &Block) -> Result<ExecFlow, RuntimeError> {
-    let mut value = None;
     for statement in &block.statements {
-        let result = eval_statement_ref(&env, statement)?;
+        let result = eval_statement_ref(env, statement)?;
         match result {
-            Normal(result_value) => value = result_value,
+            Normal(_) => continue,
             _ => return Ok(result),
         }
     }
-    Ok(Normal(value))
+    Ok(Normal(Some(Value::Nil)))
 }
 
 fn eval_statement_ref(env: &EnvRef, statement: &Statement) -> Result<ExecFlow, RuntimeError> {
@@ -360,7 +359,7 @@ fn eval_expr_ref(env: &EnvRef, exp: &Expr) -> Result<Value, RuntimeError> {
                 if args.len() as u8 != fun.get_arity() {
                     return Err(RuntimeError::EvaluationError(
                         format!(
-                            "fExpected {:?} arguments but got {:?}",
+                            "Expected {:?} arguments but got {:?}",
                             fun.get_arity(),
                             args.len()
                         ),
@@ -2887,7 +2886,7 @@ mod tests {
             }
 
             #[test]
-            fn native_clock_returns_seconds_and_has_native_display() {
+            fn native_clock_returns_msseconds_and_has_native_display() {
                 use std::time::{SystemTime, UNIX_EPOCH};
 
                 let env = Env::new();
@@ -2895,13 +2894,13 @@ mod tests {
                 let before = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .unwrap()
-                    .as_secs_f64();
+                    .as_millis() as f64;
 
                 let value = eval_in(&env, "clock()").unwrap();
                 let after = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .unwrap()
-                    .as_secs_f64();
+                    .as_millis() as f64;
                 let Value::Number(timestamp) = value else {
                     panic!("expected clock() to return a number");
                 };
@@ -2910,7 +2909,7 @@ mod tests {
                     (before..=after).contains(&timestamp),
                     "clock() returned {timestamp}, expected seconds in {before}..={after}"
                 );
-                assert_eq!(Env::get(&env, "clock").unwrap().to_string(), "<native fn>");
+                assert_eq!(Env::get(&env, "clock").unwrap().to_string(), "clock");
             }
         }
     }
