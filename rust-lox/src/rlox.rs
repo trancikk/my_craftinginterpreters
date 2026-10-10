@@ -1,7 +1,7 @@
-pub mod interpreter;
-pub mod token;
-pub mod scanner;
-pub mod parser;
-pub mod eval;
 pub mod environment;
+pub mod eval;
+pub mod interpreter;
 mod natives;
+pub mod parser;
+pub mod scanner;
+pub mod token;

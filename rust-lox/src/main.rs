@@ -1,6 +1,5 @@
 mod rlox;
 
-
 use crate::rlox::interpreter::RLox;
 use std::{env, process};
 

@@ -939,6 +939,7 @@ mod tests {
 
     mod if_statement {
         use super::*;
+        use crate::rlox::parser::tests::parse_statement_ok;
 
         fn expression_statement(input: &str) -> Statement {
             Statement::ExprStatement(parse_ok(input))
@@ -1052,6 +1053,17 @@ mod tests {
 
             assert_eq!(eval_if(outer).unwrap(), Some(Value::Number(2.0)));
         }
+
+        #[test]
+        fn selected_block_branch_returns_no_value() {
+            let statement = if_statement(
+                "true",
+                parse_statement_ok("{ 1; 2; }"),
+                Some(expression_statement("3")),
+            );
+
+            assert_eq!(eval_if(statement).unwrap(), None);
+        }
     }
 
     mod while_statement {
@@ -1098,10 +1110,11 @@ mod tests {
             let env = Env::new();
             eval_statement_ok(&env, "var i = 0;");
 
-            let result = eval_statement_ok(&env, "while (i < 3) i = i + 1; i;");
+            let result = eval_statement_ok(&env, "while (i < 3) i = i + 1;");
 
-            assert_eq!(result, Some(Value::Number(3.0)));
+            assert_eq!(result, None);
             assert_number(value_of(&env, "i"), 3.0);
+            assert_eq!(eval_statement_ok(&env, "i;"), Some(Value::Number(3.0)));
         }
 
         #[test]
@@ -1110,8 +1123,9 @@ mod tests {
             eval_statement_ok(&env, "var i = 1;");
             eval_statement_ok(&env, "var sum = 0;");
 
-            eval_statement_ok(&env, "while (i <= 3) { sum = sum + i; i = i + 1; }");
+            let result = eval_statement_ok(&env, "while (i <= 3) { sum = sum + i; i = i + 1; }");
 
+            assert_eq!(result, None);
             assert_number(value_of(&env, "sum"), 6.0);
             assert_number(value_of(&env, "i"), 4.0);
         }
@@ -1133,7 +1147,7 @@ mod tests {
             eval_statement_ok(&env, "var outer = 0;");
             eval_statement_ok(&env, "var count = 0;");
 
-            eval_statement_ok(
+            let result = eval_statement_ok(
                 &env,
                 "while (outer < 3) {
                     var inner = 0;
@@ -1145,6 +1159,7 @@ mod tests {
                 }",
             );
 
+            assert_eq!(result, None);
             assert_number(value_of(&env, "count"), 6.0);
             assert_number(value_of(&env, "outer"), 3.0);
         }
@@ -1154,10 +1169,20 @@ mod tests {
             let env = Env::new();
             eval_statement_ok(&env, "var i = 0;");
 
-            eval_statement_ok(&env, "while (i < 2) { var local = i; i = i + 1; }");
+            let result = eval_statement_ok(&env, "while (i < 2) { var local = i; i = i + 1; }");
 
+            assert_eq!(result, None);
             assert_eq!(Env::get(&env, "local"), None);
             assert_number(value_of(&env, "i"), 2.0);
+        }
+
+        #[test]
+        fn completed_for_loop_returns_no_value() {
+            let env = Env::new();
+
+            let result = eval_statement_ok(&env, "for (var i = 0; i < 3; i = i + 1) i;");
+
+            assert_eq!(result, None);
         }
 
         #[test]
@@ -1174,6 +1199,78 @@ mod tests {
             let result = eval_statement(&env, parse_statement_ok("while (true) missing;"));
 
             assert!(matches!(result, Err(RuntimeError::IdentifierNotFound(_))));
+        }
+    }
+
+    mod block_statement {
+        use super::*;
+        use crate::rlox::parser::tests::parse_statement_ok;
+
+        fn eval_statement_ok(env: &EnvRef, input: &str) -> Option<Value> {
+            match eval_statement(env, parse_statement_ok(input))
+                .unwrap_or_else(|e| panic!("evaluation failed for {input:?}: {e}"))
+            {
+                Normal(value) => value,
+                Break(_) => panic!("expected normal execution for {input:?}, got break"),
+                ExecFlow::Return(_) => {
+                    panic!("expected normal execution for {input:?}, got return")
+                }
+            }
+        }
+
+        fn value_of(env: &EnvRef, identifier: &str) -> Value {
+            eval_expr(env, parse_ok(identifier))
+                .unwrap_or_else(|e| panic!("lookup failed for {identifier:?}: {e}"))
+        }
+
+        #[test]
+        fn empty_block_returns_no_value() {
+            let result = eval_statement_ok(&Env::new(), "{}");
+
+            assert_eq!(result, None);
+        }
+
+        #[test]
+        fn last_expression_is_not_the_block_value() {
+            let result = eval_statement_ok(&Env::new(), "{ 1; 2; }");
+
+            assert_eq!(result, None);
+        }
+
+        #[test]
+        fn last_declaration_is_not_the_block_value() {
+            let result = eval_statement_ok(&Env::new(), "{ var x = 1; }");
+
+            assert_eq!(result, None);
+        }
+
+        #[test]
+        fn nested_block_returns_no_value() {
+            let result = eval_statement_ok(&Env::new(), "{ { 1; } 2; }");
+
+            assert_eq!(result, None);
+        }
+
+        #[test]
+        fn completed_block_still_applies_side_effects() {
+            let env = Env::new();
+            eval_statement_ok(&env, "var x = 1;");
+
+            let result = eval_statement_ok(&env, "{ x = 2; 3; }");
+
+            assert_eq!(result, None);
+            assert_number(value_of(&env, "x"), 2.0);
+        }
+
+        #[test]
+        fn block_containing_while_returns_no_value() {
+            let env = Env::new();
+            eval_statement_ok(&env, "var i = 0;");
+
+            let result = eval_statement_ok(&env, "{ while (i < 2) i = i + 1; i; }");
+
+            assert_eq!(result, None);
+            assert_number(value_of(&env, "i"), 2.0);
         }
     }
 
@@ -1274,7 +1371,7 @@ mod tests {
                 "while (true) { value = value + 1; break; value = 99; }",
             );
 
-            assert!(matches!(result, Ok(Normal(_))));
+            assert!(matches!(result, Ok(Normal(None))));
             assert_number(value_of(&env, "value"), 1.0);
         }
 
@@ -1293,7 +1390,7 @@ mod tests {
                 }",
             );
 
-            assert!(matches!(result, Ok(Normal(_))));
+            assert!(matches!(result, Ok(Normal(None))));
             assert_number(value_of(&env, "completed"), 3.0);
             assert_number(value_of(&env, "outer"), 3.0);
         }
@@ -1305,7 +1402,7 @@ mod tests {
 
             let result = evaluate(&env, "for (; i < 3; i = i + 1) break;");
 
-            assert!(matches!(result, Ok(Normal(_))));
+            assert!(matches!(result, Ok(Normal(None))));
             assert_number(value_of(&env, "i"), 0.0);
         }
 
@@ -2520,7 +2617,9 @@ mod tests {
                 let env = Env::new();
                 Env::define(&env, "x".to_string(), Value::Number(1.0));
 
-                eval_statement(&env, parse_statement_ok("{ var x = 2; x = 3; }")).unwrap();
+                let result =
+                    eval_statement(&env, parse_statement_ok("{ var x = 2; x = 3; }")).unwrap();
+                assert!(matches!(result, Normal(None)));
 
                 assert_eq!(Env::get(&env, "x"), Some(Value::Number(1.0)));
             }
@@ -2529,7 +2628,9 @@ mod tests {
             fn parsed_block_local_does_not_escape() {
                 let env = Env::new();
 
-                eval_statement(&env, parse_statement_ok("{ var local = 1; }")).unwrap();
+                let result =
+                    eval_statement(&env, parse_statement_ok("{ var local = 1; }")).unwrap();
+                assert!(matches!(result, Normal(None)));
 
                 assert_eq!(Env::get(&env, "local"), None);
             }
@@ -2539,7 +2640,8 @@ mod tests {
                 let env = Env::new();
                 Env::define(&env, "x".to_string(), Value::Number(1.0));
 
-                eval_statement(&env, parse_statement_ok("{ x = 2; }")).unwrap();
+                let result = eval_statement(&env, parse_statement_ok("{ x = 2; }")).unwrap();
+                assert!(matches!(result, Normal(None)));
 
                 assert_eq!(Env::get(&env, "x"), Some(Value::Number(2.0)));
             }
@@ -2550,11 +2652,12 @@ mod tests {
                 Env::define(&env, "x".to_string(), Value::Number(1.0));
                 Env::define(&env, "observed".to_string(), Value::Nil);
 
-                eval_statement(
+                let result = eval_statement(
                     &env,
                     parse_statement_ok("{ var x = 2; { x = 3; } observed = x; }"),
                 )
                 .unwrap();
+                assert!(matches!(result, Normal(None)));
 
                 assert_eq!(Env::get(&env, "x"), Some(Value::Number(1.0)));
                 assert_eq!(Env::get(&env, "observed"), Some(Value::Number(3.0)));
@@ -2648,6 +2751,47 @@ mod tests {
                 declare(&env, "fun noop() {}");
 
                 assert_nil(eval_in(&env, "noop()").unwrap());
+            }
+
+            #[test]
+            fn declaration_evaluates_to_no_value() {
+                let env = Env::new();
+                let results = evaluate_script(&env, "fun noop() { 1; }").unwrap();
+
+                assert!(matches!(results.as_slice(), [Normal(None)]));
+            }
+
+            #[test]
+            fn call_without_return_is_a_nil_expression() {
+                let env = Env::new();
+                let results = evaluate_script(&env, "fun noop() { 1; 2; }\nnoop();").unwrap();
+
+                assert!(matches!(
+                    results.as_slice(),
+                    [Normal(None), Normal(Some(Value::Nil))]
+                ));
+            }
+
+            #[test]
+            fn last_while_is_not_an_implicit_return() {
+                let env = Env::new();
+                declare(
+                    &env,
+                    "fun count() {
+                        var i = 0;
+                        while (i < 3) i = i + 1;
+                    }",
+                );
+
+                assert_nil(eval_in(&env, "count()").unwrap());
+            }
+
+            #[test]
+            fn last_block_is_not_an_implicit_return() {
+                let env = Env::new();
+                declare(&env, "fun numbers() { { 1; 2; } }");
+
+                assert_nil(eval_in(&env, "numbers()").unwrap());
             }
 
             #[test]

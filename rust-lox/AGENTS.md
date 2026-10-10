@@ -12,7 +12,7 @@ This is a tree-walking interpreter implementing:
 - Control flow: if/else, while loops, for loops
 - Functions and closures (planned)
 
-**Current Status**: Core language features implemented; parser has known bug in assignment parsing; environment lacks nested scope resolution.
+**Current Status**: Core language features implemented; environment is created during function declaration and reused (with frames) across function invocation.
 
 ## Stack & Conventions
 
