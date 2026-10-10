@@ -29,6 +29,7 @@ pub enum Literal {
     Nil,
 }
 
+#[derive(Debug)]
 pub enum ExecFlow {
     Normal(Option<Value>),
     Break(Token),
@@ -171,7 +172,7 @@ impl<'src> Parser<'src> {
 
     fn return_statement(&mut self) -> Result<Statement, RloxError> {
         let token = self.consume(&Return, "Expect Return keyword for return")?;
-        let expr = if !self.check_and_advance(&Semicolon) {
+        let expr = if !self.check(&Semicolon) {
             Some(self.parse_expression()?)
         } else {
             None
@@ -185,14 +186,18 @@ impl<'src> Parser<'src> {
         let name = self.consume(&Identifier, "Expected function name")?;
         self.consume(&LeftParen, "Expect '(' after function name")?;
         let mut params = vec![];
-        loop {
-            let param = self.consume(&Identifier, "Expected parameter name")?;
-            params.push(param);
-            if !self.check_and_advance(&Comma) {
-                break;
+
+        if !self.check_and_advance(&RightParen) {
+            loop {
+                let param = self.consume(&Identifier, "Expected parameter name")?;
+                params.push(param);
+                if !self.check_and_advance(&Comma) {
+                    break;
+                }
             }
+            self.consume(&RightParen, "Expect ')' after function args")?;
         }
-        self.consume(&RightParen, "Expect ')' after function args")?;
+
         let body = self.parse_block()?;
         Ok(Statement::FunctionStatement {
             args: params,
@@ -297,7 +302,7 @@ impl<'src> Parser<'src> {
     }
 
     fn parse_block_statement(&mut self) -> Result<Statement, RloxError> {
-        self.parse_block().map(|block| BlockStatement(block))
+        self.parse_block().map(BlockStatement)
     }
 
     fn parse_block(&mut self) -> Result<Block, RloxError> {

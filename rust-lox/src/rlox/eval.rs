@@ -131,7 +131,7 @@ fn eval_block_ref(env: &EnvRef, block: &Block) -> Result<ExecFlow, RuntimeError>
             _ => return Ok(result),
         }
     }
-    Ok(Normal(Some(Value::Nil)))
+    Ok(Normal(None))
 }
 
 fn eval_statement_ref(env: &EnvRef, statement: &Statement) -> Result<ExecFlow, RuntimeError> {
@@ -151,16 +151,18 @@ fn eval_statement_ref(env: &EnvRef, statement: &Statement) -> Result<ExecFlow, R
             }
         }
         Statement::WhileStatement { body, expr } => {
-            let mut value = None;
             while is_truthy(&eval_expr_ref(env, expr)?) {
                 let result = eval_statement_ref(env, body)?;
-                match result {
-                    Normal(result_value) => value = result_value,
-                    ExecFlow::Return(value) => return Ok(Normal(value)),
-                    Break(..) => return Ok(Normal(value)),
+
+                if let Break(_) = result {
+                    break;
+                } else if let Normal(_) = result {
+                    continue;
+                } else {
+                    return Ok(result);
                 }
             }
-            Ok(Normal(value))
+            Ok(Normal(None))
         }
         Statement::BlockStatement(block) => {
             let nested_env = Env::from_env(env);
@@ -1096,7 +1098,7 @@ mod tests {
             let env = Env::new();
             eval_statement_ok(&env, "var i = 0;");
 
-            let result = eval_statement_ok(&env, "while (i < 3) i = i + 1;");
+            let result = eval_statement_ok(&env, "while (i < 3) i = i + 1; i;");
 
             assert_eq!(result, Some(Value::Number(3.0)));
             assert_number(value_of(&env, "i"), 3.0);
@@ -1121,7 +1123,7 @@ mod tests {
 
             let result = eval_statement_ok(&env, "while (condition) condition = false;");
 
-            assert_eq!(result, Some(Value::Boolean(false)));
+            assert_eq!(result, None);
             assert_bool(value_of(&env, "condition"), false);
         }
 
@@ -1252,7 +1254,6 @@ mod tests {
         #[test]
         fn false_loop_does_not_execute_break() {
             let result = evaluate(&Env::new(), "while (false) break;");
-
             assert!(matches!(result, Ok(Normal(None))));
         }
 
