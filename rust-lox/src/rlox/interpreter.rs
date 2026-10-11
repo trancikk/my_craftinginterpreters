@@ -19,9 +19,9 @@ pub struct RLox {
 // TODO add RuntimeError, use it in report error method
 #[derive(Error, Debug)]
 pub enum RloxError {
-    #[error("Unexpected token `{0:?}`!")]
+    #[error("Parser Error: Unexpected token `{0:?}`!")]
     ParserError(Token, String),
-    #[error("Unexpected Symbols `{1:?}` on line: `{0:?}`!")]
+    #[error("Scanner Error: Unexpected Symbols `{1:?}` on line: `{0:?}`!")]
     ScannerError(u64, char, String),
     #[error("Got EOF")]
     EOF,
@@ -83,9 +83,9 @@ impl RLox {
                     let msg = e.to_string();
                     match e {
                         RloxError::EOF => break,
-                        RloxError::ParserError(token, msg) => {
-                            eprintln!("{token} - {msg}")
-                        }
+                        // RloxError::ParserError(token, msg) => {
+                        //     eprintln!("{e} - {msg}")
+                        // }
                         _ => eprintln!("{msg}"),
                     }
                     // match e {

@@ -97,6 +97,10 @@ pub enum Expr {
         paren: Token,
         args: Vec<Expr>,
     },
+    FunctionExpression {
+        args: Vec<Token>,
+        body: Block,
+    },
 }
 
 #[derive(PartialEq, Copy, Clone)]
@@ -191,42 +195,22 @@ impl<'src> Parser<'src> {
 
     fn parse_fun_declaration(&mut self) -> Result<Statement, RloxError> {
         self.fun_nesting += 1;
-        self.advance()?;
-        let name = self.consume(&Identifier, "Expected function name")?;
-        self.consume(&LeftParen, "Expect '(' after function name")?;
-        let mut params = vec![];
-        if !self.check_and_advance(&RightParen) {
-            loop {
-                let param = self.consume(&Identifier, "Expected parameter name")?;
-                if params.len() >= MAX_ARGS {
-                    let next_token = self.peek()?;
-                    return Err(ParserError(
-                        next_token.clone(),
-                        "Can't have more than 255 arguments.".to_string(),
-                    ));
-                }
-                params.push(param);
-                if self.check_and_advance(&Comma) {
-                    if let Ok(Some(token)) = self.match_any_and_return(&[RightParen, EOF]) {
-                        return Err(ParserError(
-                            token,
-                            "Extra trailing coma after function parameters!".to_string(),
-                        ));
-                    }
-                } else {
-                    break;
-                }
-            }
-            self.consume(&RightParen, "Expect ')' after function args")?;
+        self.consume(&Fun, "Expected fun keyword")?;
+        let name = self.match_and_return(&Identifier);
+        if let Ok(name) = name {
+            self.consume(&LeftParen, "Expect '(' after function name")?;
+            let params = self.parse_fun_args()?;
+            let body = self.parse_block()?;
+            self.fun_nesting -= 1;
+            Ok(Statement::FunctionStatement {
+                args: params,
+                name,
+                body,
+            })
+        } else {
+            let fun_expr = self.parse_fun_expression()?;
+            self.expr_to_statement(fun_expr)
         }
-
-        let body = self.parse_block()?;
-        self.fun_nesting -= 1;
-        Ok(Statement::FunctionStatement {
-            args: params,
-            name,
-            body,
-        })
     }
     fn parse_for(&mut self) -> Result<Statement, RloxError> {
         self.loop_nesting += 1;
@@ -362,6 +346,10 @@ impl<'src> Parser<'src> {
 
     fn parse_expr_statement(&mut self) -> Result<Statement, RloxError> {
         let expr = self.parse_expression()?;
+        self.expr_to_statement(expr)
+    }
+
+    fn expr_to_statement(&mut self, expr: Expr) -> Result<Statement, RloxError> {
         self.consume_statement_end()?;
         Ok(Statement::ExprStatement(expr))
     }
@@ -561,8 +549,8 @@ impl<'src> Parser<'src> {
                     paren,
                 });
             }
-            let expr = self.parse_assignment()?;
-            args.push(expr);
+            let ass_expr = self.parse_assignment()?;
+            args.push(ass_expr);
             if args.len() > MAX_ARGS {
                 let next_token = self.peek()?;
                 return Err(ParserError(
@@ -582,6 +570,16 @@ impl<'src> Parser<'src> {
         }
     }
 
+    fn parse_fun_expression(&mut self) -> Result<Expr, RloxError> {
+        self.fun_nesting += 1;
+        self.should_not_match(&Identifier)?;
+        self.consume(&LeftParen, "Expect '(' after function name")?;
+        let params = self.parse_fun_args()?;
+        let body = self.parse_block()?;
+        self.fun_nesting -= 1;
+        Ok(Expr::FunctionExpression { args: params, body })
+    }
+
     fn primary(&mut self) -> Result<Expr, RloxError> {
         let next = self.advance()?;
         match next.token_type.clone() {
@@ -589,6 +587,7 @@ impl<'src> Parser<'src> {
             False => Ok(Expr::SyntaxLiteral(Literal::False)),
             True => Ok(Expr::SyntaxLiteral(Literal::True)),
             Nil => Ok(Expr::SyntaxLiteral(Literal::Nil)),
+            Fun => self.parse_fun_expression(),
             Number(val) => Ok(Expr::SyntaxLiteral(Literal::Number(val))),
             FloatNumber(val) => Ok(Expr::SyntaxLiteral(Literal::FloatNumber(val))),
             StringToken(val) => Ok(Expr::SyntaxLiteral(Literal::StringL(val.clone()))),
@@ -607,6 +606,35 @@ impl<'src> Parser<'src> {
                 // None
             }
         }
+    }
+
+    fn parse_fun_args(&mut self) -> Result<Vec<Token>, RloxError> {
+        let mut params = vec![];
+        if !self.check_and_advance(&RightParen) {
+            loop {
+                let param = self.consume(&Identifier, "Expected parameter name")?;
+                if params.len() >= MAX_ARGS {
+                    let next_token = self.peek()?;
+                    return Err(ParserError(
+                        next_token.clone(),
+                        "Can't have more than 255 arguments.".to_string(),
+                    ));
+                }
+                params.push(param);
+                if self.check_and_advance(&Comma) {
+                    if let Ok(Some(token)) = self.match_any_and_return(&[RightParen, EOF]) {
+                        return Err(ParserError(
+                            token,
+                            "Extra trailing coma after function parameters!".to_string(),
+                        ));
+                    }
+                } else {
+                    break;
+                }
+            }
+            self.consume(&RightParen, "Expect ')' after function args")?;
+        }
+        Ok(params)
     }
 
     fn consume(&mut self, token_type: &TokenType, message: &str) -> Result<Token, RloxError> {
@@ -717,6 +745,16 @@ impl<'src> Parser<'src> {
         }
     }
 
+    fn should_not_match(&mut self, token_type: &TokenType) -> Result<(), RloxError> {
+        if let Ok(next) = self.peek()
+            && next.token_type == *token_type
+        {
+            Err(ParserError(next.clone(), String::from("Unexpected token")))
+        } else {
+            Ok(())
+        }
+    }
+
     fn check_and_advance(&mut self, token_type: &TokenType) -> bool {
         if let Ok(next) = self.peek()
             && (next.token_type == *token_type)
@@ -816,7 +854,6 @@ pub(crate) mod tests {
 
     pub(crate) fn parse_statement_fails(input: &str) {
         let result = parse_statement(input);
-        println!("{:?}", result);
         assert!(
             result.is_err(),
             "expected parse failure for {input:?}, got {result:?}"

@@ -56,10 +56,11 @@ pub trait Callable: Debug {
 
 impl Callable for LoxFunction {
     fn call(&self, args: Vec<Value>) -> Result<Value, RuntimeError> {
+        let local_env = Env::from_env(&self.env);
         for (i, var) in self.params.iter().enumerate() {
-            Env::define(&self.env, var.clone(), args[i].clone())
+            Env::define(&local_env, var.clone(), args[i].clone())
         }
-        let value = eval_block_ref(&self.env, &self.block)?;
+        let value = eval_block_ref(&local_env, &self.block)?;
         match value {
             Normal(value) | ExecFlow::Return(value) => Ok({
                 if let Some(value) = value {
@@ -376,6 +377,12 @@ fn eval_expr_ref(env: &EnvRef, exp: &Expr) -> Result<Value, RuntimeError> {
                 ))
             }
         }
+        Expr::FunctionExpression { args, body } => Ok(CallableValue(Rc::new(LoxFunction {
+            block: body.clone(),
+            name: String::from("anon"),
+            params: args.iter().map(|arg| arg.lexeme.clone()).collect(),
+            env: Env::from_env(env),
+        }))),
     }
 }
 
