@@ -2912,6 +2912,227 @@ mod tests {
             }
         }
 
+        mod function_expressions {
+            use super::*;
+
+            #[test]
+            fn produces_anonymous_callable_with_arity() {
+                let env = Env::new();
+                declare(&env, "var f = fun (left, right) { return left + right; };");
+
+                let Some(CallableValue(function)) = Env::get(&env, "f") else {
+                    panic!("expected f to be bound to a callable");
+                };
+                assert_eq!(function.get_name(), "anon");
+                assert_eq!(function.get_arity(), 2);
+                assert_eq!(CallableValue(function).to_string(), "anon");
+            }
+
+            #[test]
+            fn can_be_bound_and_called() {
+                let env = Env::new();
+                declare(&env, "var increment = fun (n) { return n + 1; };");
+
+                assert_eq!(number_in(&env, "increment(41)"), 42.0);
+            }
+
+            #[test]
+            fn grouped_iife_returns_value() {
+                let env = Env::new();
+
+                assert_eq!(number_in(&env, "(fun () { return 42; })()"), 42.0);
+            }
+
+            #[test]
+            fn ungrouped_iife_expression_returns_value() {
+                let env = Env::new();
+
+                assert_eq!(number_in(&env, "fun (a) { return a + 1; }(41)"), 42.0);
+            }
+
+            #[test]
+            fn iife_with_arguments() {
+                let env = Env::new();
+
+                assert_eq!(
+                    number_in(&env, "(fun (a, b) { return a + b; })(20, 22)"),
+                    42.0
+                );
+            }
+
+            #[test]
+            fn empty_iife_returns_nil() {
+                let env = Env::new();
+
+                assert_nil(eval_in(&env, "(fun () {})()").unwrap());
+            }
+
+            #[test]
+            fn discarded_anonymous_function_evaluates_to_callable() {
+                let env = Env::new();
+                let results = evaluate_script(&env, "fun () {};").unwrap();
+
+                assert!(matches!(
+                    results.as_slice(),
+                    [Normal(Some(CallableValue(_)))]
+                ));
+            }
+
+            #[test]
+            fn book_thrice_passes_function_expression_as_argument() {
+                let env = Env::new();
+                declare(
+                    &env,
+                    "var observed = 0;
+                     fun thrice(fn) {
+                        for (var i = 1; i <= 3; i = i + 1) {
+                            fn(i);
+                        }
+                     }
+                     thrice(fun (a) {
+                        observed = observed * 10 + a;
+                     });",
+                );
+
+                assert_eq!(number_in(&env, "observed"), 123.0);
+            }
+
+            #[test]
+            fn closure_captures_enclosing_binding() {
+                let env = Env::new();
+                declare(
+                    &env,
+                    "fun make_adder(n) {
+                        return fun (x) { return x + n; };
+                     }
+                     var add_two = make_adder(2);",
+                );
+
+                assert_eq!(number_in(&env, "add_two(3)"), 5.0);
+            }
+
+            #[test]
+            fn nested_anonymous_function_can_be_returned_and_called() {
+                let env = Env::new();
+                declare(
+                    &env,
+                    "var make_inner = fun () {
+                        return fun () { return 7; };
+                     };
+                     var inner = make_inner();",
+                );
+
+                assert_eq!(number_in(&env, "inner()"), 7.0);
+            }
+
+            #[test]
+            fn return_inside_anonymous_function() {
+                let env = Env::new();
+
+                assert_eq!(number_in(&env, "(fun () { return 1; 2; })()"), 1.0);
+            }
+
+            #[test]
+            fn bare_return_from_iife_is_nil() {
+                let env = Env::new();
+
+                assert_nil(eval_in(&env, "(fun () { return; })()").unwrap());
+            }
+
+            #[test]
+            fn return_inside_while_exits_anonymous_function() {
+                let env = Env::new();
+
+                assert_eq!(
+                    number_in(&env, "(fun () { while (true) return 1; return 2; })()"),
+                    1.0
+                );
+            }
+
+            #[test]
+            fn falling_off_end_returns_nil() {
+                let env = Env::new();
+                declare(&env, "var f = fun () { 1; };");
+
+                assert_nil(eval_in(&env, "f()").unwrap());
+            }
+
+            #[test]
+            fn late_bound_recursion_through_variable() {
+                let env = Env::new();
+                declare(
+                    &env,
+                    "var fact;
+                     fact = fun (n) {
+                        if (n <= 1) return 1;
+                        return n * fact(n - 1);
+                     };",
+                );
+
+                assert_eq!(number_in(&env, "fact(5)"), 120.0);
+            }
+
+            #[test]
+            fn ternary_can_select_and_invoke_function_expression() {
+                let env = Env::new();
+
+                assert_eq!(
+                    number_in(
+                        &env,
+                        "(true ? fun () { return 1; } : fun () { return 2; })()"
+                    ),
+                    1.0
+                );
+                assert_eq!(
+                    number_in(
+                        &env,
+                        "(false ? fun () { return 1; } : fun () { return 2; })()"
+                    ),
+                    2.0
+                );
+            }
+
+            #[test]
+            fn grouped_print_iife_runs() {
+                let env = Env::new();
+                let results = evaluate_script(
+                    &env,
+                    r#"
+                    (fun () {
+                        print "fun!";
+                    })();
+                    "#,
+                )
+                .unwrap();
+
+                assert!(matches!(results.as_slice(), [Normal(Some(Value::Nil))]));
+            }
+
+            #[test]
+            fn too_few_arguments_is_an_error() {
+                let env = Env::new();
+
+                let Err(RuntimeError::EvaluationError(message, _)) =
+                    eval_in(&env, "(fun (a) { return a; })()")
+                else {
+                    panic!("expected arity error");
+                };
+                assert!(message.contains("Expected 1 arguments but got 0"));
+            }
+
+            #[test]
+            fn too_many_arguments_is_an_error() {
+                let env = Env::new();
+
+                let Err(RuntimeError::EvaluationError(message, _)) =
+                    eval_in(&env, "(fun () { return 1; })(1)")
+                else {
+                    panic!("expected arity error");
+                };
+                assert!(message.contains("Expected 0 arguments but got 1"));
+            }
+        }
+
         mod runtime_errors {
             use super::*;
 

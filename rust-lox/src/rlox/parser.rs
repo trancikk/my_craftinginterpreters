@@ -194,10 +194,10 @@ impl<'src> Parser<'src> {
     }
 
     fn parse_fun_declaration(&mut self) -> Result<Statement, RloxError> {
-        self.fun_nesting += 1;
         self.consume(&Fun, "Expected fun keyword")?;
         let name = self.match_and_return(&Identifier);
         if let Ok(name) = name {
+            self.fun_nesting += 1;
             self.consume(&LeftParen, "Expect '(' after function name")?;
             let params = self.parse_fun_args()?;
             let body = self.parse_block()?;
@@ -3902,6 +3902,17 @@ pub(crate) mod tests {
             &token.lexeme
         }
 
+        fn function_expression(expr: &Expr) -> (&[Token], &Block) {
+            let Expr::FunctionExpression { args, body } = expr else {
+                panic!("expected function expression, got {expr:?}");
+            };
+            (args, body)
+        }
+
+        fn param_names(args: &[Token]) -> Vec<&str> {
+            args.iter().map(|arg| arg.lexeme.as_str()).collect()
+        }
+
         mod declarations {
             use super::*;
 
@@ -3975,11 +3986,6 @@ pub(crate) mod tests {
             }
 
             #[test]
-            fn rejects_missing_name() {
-                parse_statement_fails("fun (value) {}");
-            }
-
-            #[test]
             fn rejects_missing_left_parenthesis() {
                 parse_statement_fails("fun identity value) { return value; }");
             }
@@ -4012,6 +4018,229 @@ pub(crate) mod tests {
             #[test]
             fn rejects_unterminated_body() {
                 parse_statement_fails("fun identity(value) { return value;");
+            }
+        }
+
+        mod expressions {
+            use super::*;
+
+            fn parse_script(input: &str) -> Result<Vec<Statement>, RloxError> {
+                let mut parser = Parser::new(Scanner::new(input.lines()));
+                let mut statements = Vec::new();
+                loop {
+                    match parser.parse_statements() {
+                        Ok(statement) => statements.push(statement),
+                        Err(RloxError::EOF) => return Ok(statements),
+                        Err(error) => return Err(error),
+                    }
+                }
+            }
+
+            #[test]
+            fn parses_parameters_and_body() {
+                let expr = parse_ok("fun (left, right) { return left + right; }");
+                let (args, body) = function_expression(&expr);
+
+                assert_eq!(param_names(args), ["left", "right"]);
+                assert!(matches!(
+                    body.statements.as_slice(),
+                    [ReturnStatement(_, Some(Expr::Binary { .. }))]
+                ));
+            }
+
+            #[test]
+            fn parses_zero_parameter_expression() {
+                let expr = parse_ok("fun () { return 1; }");
+                let (args, body) = function_expression(&expr);
+
+                assert!(args.is_empty());
+                assert!(matches!(
+                    body.statements.as_slice(),
+                    [ReturnStatement(_, Some(_))]
+                ));
+            }
+
+            #[test]
+            fn anonymous_function_statement_is_an_expression_statement() {
+                let statement = parse_statement_ok("fun (value) { return value; };");
+                let Statement::ExprStatement(expr) = statement else {
+                    panic!("expected expression statement, got {statement:?}");
+                };
+                let (args, _) = function_expression(&expr);
+
+                assert_eq!(param_names(args), ["value"]);
+            }
+
+            #[test]
+            fn discarded_anonymous_function_is_the_book_statement_case() {
+                let statement = parse_statement_ok("fun () {};");
+
+                assert!(matches!(
+                    statement,
+                    Statement::ExprStatement(Expr::FunctionExpression { ref args, ref body })
+                        if args.is_empty() && body.statements.is_empty()
+                ));
+            }
+
+            #[test]
+            fn named_function_is_still_a_declaration() {
+                let statement = parse_statement_ok("fun named() {}");
+
+                assert!(matches!(statement, Statement::FunctionStatement { .. }));
+            }
+
+            #[test]
+            fn script_requires_semicolon_after_anonymous_function_statement() {
+                parse_statement_fails("fun () {}");
+            }
+
+            #[test]
+            fn parses_function_expression_in_variable_initializer() {
+                let statement = parse_statement_ok("var f = fun (n) { return n; };");
+                let Statement::DeclarationStatement(name, Some(expr)) = statement else {
+                    panic!("expected declaration with initializer, got {statement:?}");
+                };
+
+                assert_eq!(name, "f");
+                assert_eq!(param_names(function_expression(&expr).0), ["n"]);
+            }
+
+            #[test]
+            fn parses_function_expression_as_call_argument() {
+                let expr = parse_ok("thrice(fun (a) { print a; })");
+                let (callee, _, args) = callable(&expr);
+
+                assert_eq!(identifier(callee), "thrice");
+                assert_eq!(args.len(), 1);
+                assert_eq!(param_names(function_expression(&args[0]).0), ["a"]);
+            }
+
+            #[test]
+            fn parses_grouped_iife() {
+                let expr = parse_ok("(fun () { print \"fun!\"; })()");
+                let (callee, _, args) = callable(&expr);
+                let grouped = as_grouping(callee);
+                let (params, body) = function_expression(grouped);
+
+                assert!(params.is_empty());
+                assert!(args.is_empty());
+                assert!(matches!(body.statements.as_slice(), [Statement::Print(_)]));
+            }
+
+            #[test]
+            fn parses_ungrouped_iife_expression() {
+                let expr = parse_ok("fun () { return 1; }()");
+                let (callee, _, args) = callable(&expr);
+                let (params, _) = function_expression(callee);
+
+                assert!(params.is_empty());
+                assert!(args.is_empty());
+            }
+
+            #[test]
+            fn parses_iife_with_arguments() {
+                let expr = parse_ok("(fun (a, b) { return a + b; })(20, 22)");
+                let (callee, _, args) = callable(&expr);
+
+                assert_eq!(
+                    param_names(function_expression(as_grouping(callee)).0),
+                    ["a", "b"]
+                );
+                assert_eq!(args.len(), 2);
+                assert_eq!(as_number(&args[0]), 20);
+                assert_eq!(as_number(&args[1]), 22);
+            }
+
+            #[test]
+            fn call_binds_tighter_than_arithmetic() {
+                let expr = parse_ok("fun () { return 1; }() + 2");
+                let (left, operator, right) = as_binary(&expr);
+                let (callee, _, _) = callable(left);
+
+                assert_eq!(operator, Plus);
+                assert!(matches!(callee, Expr::FunctionExpression { .. }));
+                assert_eq!(as_number(right), 2);
+            }
+
+            #[test]
+            fn parses_nested_function_expression() {
+                let expr = parse_ok("fun () { return fun (x) { return x; }; }");
+                let (_, body) = function_expression(&expr);
+                let [ReturnStatement(_, Some(inner))] = body.statements.as_slice() else {
+                    panic!("expected return of inner function, got {body:?}");
+                };
+
+                assert_eq!(param_names(function_expression(inner).0), ["x"]);
+            }
+
+            #[test]
+            fn return_is_allowed_inside_anonymous_body() {
+                let statement = parse_statement_ok("fun () { return 1; };");
+                let Statement::ExprStatement(expr) = statement else {
+                    panic!("expected expression statement, got {statement:?}");
+                };
+                let (_, body) = function_expression(&expr);
+
+                assert!(matches!(
+                    body.statements.as_slice(),
+                    [ReturnStatement(_, Some(_))]
+                ));
+            }
+
+            #[test]
+            fn top_level_return_is_still_rejected_after_anonymous_function() {
+                let result = parse_script("fun () { return 1; };\nreturn 1;");
+
+                assert!(
+                    result.is_err(),
+                    "top-level return after a fun expression should still fail, got {result:?}"
+                );
+            }
+
+            #[test]
+            fn rejects_named_function_expression() {
+                parse_expression_fails("fun identity() {}");
+            }
+
+            #[test]
+            fn rejects_missing_parentheses() {
+                parse_statement_fails("fun {};");
+            }
+
+            #[test]
+            fn rejects_assignment_to_function_expression() {
+                parse_expression_fails("fun () {} = 1");
+            }
+
+            #[test]
+            fn rejects_trailing_parameter_comma() {
+                parse_expression_fails("fun (value,) {}");
+            }
+
+            #[test]
+            fn rejects_missing_body() {
+                parse_expression_fails("fun (value) return value;");
+            }
+
+            #[test]
+            fn accepts_255_parameters() {
+                let params = (0..255)
+                    .map(|index| format!("p{index}"))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                let expr = parse_ok(&format!("fun ({params}) {{}}"));
+
+                assert_eq!(function_expression(&expr).0.len(), 255);
+            }
+
+            #[test]
+            fn rejects_256_parameters() {
+                let params = (0..256)
+                    .map(|index| format!("p{index}"))
+                    .collect::<Vec<_>>()
+                    .join(",");
+
+                parse_expression_fails(&format!("fun ({params}) {{}}"));
             }
         }
 
