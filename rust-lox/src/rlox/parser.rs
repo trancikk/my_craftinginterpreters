@@ -111,6 +111,7 @@ pub struct Parser<'src> {
     next_token: Option<Token>,
     parser_mode: ParserMode,
     loop_nesting: u16,
+    fun_nesting: u16,
 }
 
 impl<'src> Parser<'src> {
@@ -125,6 +126,7 @@ impl<'src> Parser<'src> {
             next_token: None,
             parser_mode,
             loop_nesting: 0,
+            fun_nesting: 0,
         }
     }
 
@@ -176,11 +178,19 @@ impl<'src> Parser<'src> {
         } else {
             None
         };
-        self.consume_statement_end()?;
-        Ok(ReturnStatement(token, expr))
+        let statement_end = self.consume_statement_end()?;
+        if self.fun_nesting == 0 {
+            Err(ParserError(
+                statement_end,
+                String::from("Return at top level is not allowed"),
+            ))
+        } else {
+            Ok(ReturnStatement(token, expr))
+        }
     }
 
     fn parse_fun_declaration(&mut self) -> Result<Statement, RloxError> {
+        self.fun_nesting += 1;
         self.advance()?;
         let name = self.consume(&Identifier, "Expected function name")?;
         self.consume(&LeftParen, "Expect '(' after function name")?;
@@ -211,6 +221,7 @@ impl<'src> Parser<'src> {
         }
 
         let body = self.parse_block()?;
+        self.fun_nesting -= 1;
         Ok(Statement::FunctionStatement {
             args: params,
             name,
@@ -607,14 +618,11 @@ impl<'src> Parser<'src> {
         }
     }
 
-    fn consume_statement_end(&mut self) -> Result<(), RloxError> {
+    fn consume_statement_end(&mut self) -> Result<Token, RloxError> {
         let next = self.peek()?.clone();
         match next.token_type {
-            Semicolon => {
-                self.advance()?;
-                Ok(())
-            }
-            EOF if self.parser_mode == ParserMode::Repl => Ok(()),
+            Semicolon => self.advance(),
+            EOF if self.parser_mode == ParserMode::Repl => Ok(next),
             _ => Err(ParserError(
                 next,
                 String::from("Expected semicolon ; or EOF as the end of the statement!"),
@@ -3876,7 +3884,7 @@ pub(crate) mod tests {
                 );
                 assert!(matches!(
                     body.statements.as_slice(),
-                    [Statement::ReturnStatement(_, Some(Expr::Binary { .. }))]
+                    [ReturnStatement(_, Some(Expr::Binary { .. }))]
                 ));
             }
 
@@ -4085,7 +4093,7 @@ pub(crate) mod tests {
             #[test]
             fn parses_return_value_and_keyword_token() {
                 let statement = parse_statement_ok("return 1 + 2;");
-                let Statement::ReturnStatement(token, Some(expr)) = statement else {
+                let ReturnStatement(token, Some(expr)) = statement else {
                     panic!("expected return statement with a value");
                 };
 
