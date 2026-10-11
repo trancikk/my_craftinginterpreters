@@ -1,5 +1,4 @@
-use crate::rlox::environment::EnvRef;
-use crate::rlox::eval::{LoxFunction, Value};
+use crate::rlox::eval::Value;
 use crate::rlox::interpreter::RloxError;
 use crate::rlox::interpreter::RloxError::ParserError;
 use crate::rlox::parser::Expr::{
@@ -17,7 +16,7 @@ use crate::rlox::token::TokenType::{
 };
 use crate::rlox::token::{Token, TokenType};
 
-const MAX_ARGS: u8 = 254;
+const MAX_ARGS: usize = 255;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Literal {
@@ -144,7 +143,7 @@ impl<'src> Parser<'src> {
                 If => self.parse_if(),
                 While => self.parse_while(),
                 For => self.parse_for(),
-                Fun => self.parse_fun(),
+                Fun => self.parse_fun_declaration(),
                 LeftBrace => self.parse_block_statement(),
                 Var => self.parse_declarations(),
                 Print => self.print_statement(),
@@ -181,17 +180,30 @@ impl<'src> Parser<'src> {
         Ok(ReturnStatement(token, expr))
     }
 
-    fn parse_fun(&mut self) -> Result<Statement, RloxError> {
+    fn parse_fun_declaration(&mut self) -> Result<Statement, RloxError> {
         self.advance()?;
         let name = self.consume(&Identifier, "Expected function name")?;
         self.consume(&LeftParen, "Expect '(' after function name")?;
         let mut params = vec![];
-
         if !self.check_and_advance(&RightParen) {
             loop {
                 let param = self.consume(&Identifier, "Expected parameter name")?;
+                if params.len() >= MAX_ARGS {
+                    let next_token = self.peek()?;
+                    return Err(ParserError(
+                        next_token.clone(),
+                        "Can't have more than 255 arguments.".to_string(),
+                    ));
+                }
                 params.push(param);
-                if !self.check_and_advance(&Comma) {
+                if self.check_and_advance(&Comma) {
+                    if let Ok(Some(token)) = self.match_any_and_return(&[RightParen, EOF]) {
+                        return Err(ParserError(
+                            token,
+                            "Extra trailing coma after function parameters!".to_string(),
+                        ));
+                    }
+                } else {
                     break;
                 }
             }
@@ -466,7 +478,7 @@ impl<'src> Parser<'src> {
 
     fn equality(&mut self) -> Result<Expr, RloxError> {
         let ops = [BangEqual, EqualEqual];
-        if let Ok(token) = self.match_any_and_return(&ops) {
+        if let Ok(Some(token)) = self.match_any_and_return(&ops) {
             let expr = self.equality()?;
             return Self::produce_and_report_binary_error(expr, token);
         }
@@ -475,7 +487,7 @@ impl<'src> Parser<'src> {
 
     fn comparison(&mut self) -> Result<Expr, RloxError> {
         let ops = [Greater, GreaterEqual, Less, LessEqual];
-        if let Ok(token) = self.match_any_and_return(&ops) {
+        if let Ok(Some(token)) = self.match_any_and_return(&ops) {
             let expr = self.comparison()?;
             return Self::produce_and_report_binary_error(expr, token);
         }
@@ -495,7 +507,7 @@ impl<'src> Parser<'src> {
     fn factor(&mut self) -> Result<Expr, RloxError> {
         let ops = [Slash, Star];
 
-        if let Ok(token) = self.match_any_and_return(&ops) {
+        if let Ok(Some(token)) = self.match_any_and_return(&ops) {
             let expr = self.factor()?;
             return Self::produce_and_report_binary_error(expr, token);
         }
@@ -504,7 +516,7 @@ impl<'src> Parser<'src> {
     }
 
     fn unary(&mut self) -> Result<Expr, RloxError> {
-        if let Ok(token) = self.match_any_and_return(&[Bang, Minus]) {
+        if let Ok(Some(token)) = self.match_any_and_return(&[Bang, Minus]) {
             let right = self.unary()?;
             return Ok(Unary {
                 op: token,
@@ -531,28 +543,34 @@ impl<'src> Parser<'src> {
     fn parse_callable(&mut self, expr: Expr) -> Result<Expr, RloxError> {
         let mut args = vec![];
         loop {
-            if self.check(&RightParen) {
-                break;
+            if let Ok(paren) = self.match_and_return(&RightParen) {
+                return Ok(Expr::CallableExpression {
+                    callee: Box::new(expr),
+                    args,
+                    paren,
+                });
             }
             let expr = self.parse_assignment()?;
             args.push(expr);
-            if args.len() == MAX_ARGS as usize {
+            if args.len() > MAX_ARGS {
                 let next_token = self.peek()?;
                 return Err(ParserError(
                     next_token.clone(),
                     "Can't have more than 255 arguments.".to_string(),
                 ));
             } else {
-                self.check_and_advance(&Comma);
+                if self.check_and_advance(&Comma)
+                    && let Ok(Some(token)) = self.match_any_and_return(&[RightParen, EOF])
+                {
+                    return Err(ParserError(
+                        token,
+                        "Extra trailing coma after function arguments!".to_string(),
+                    ));
+                }
             }
         }
-        let paren = self.consume(&RightParen, "Expect ')' after arguments")?;
-        Ok(Expr::CallableExpression {
-            callee: Box::new(expr),
-            args,
-            paren,
-        })
     }
+
     fn primary(&mut self) -> Result<Expr, RloxError> {
         let next = self.advance()?;
         match next.token_type.clone() {
@@ -730,10 +748,13 @@ impl<'src> Parser<'src> {
         }
     }
 
-    fn match_any_and_return(&mut self, token_types: &[TokenType]) -> Result<Token, RloxError> {
+    fn match_any_and_return(
+        &mut self,
+        token_types: &[TokenType],
+    ) -> Result<Option<Token>, RloxError> {
         let next = self.peek().cloned()?;
         if token_types.contains(&next.token_type) {
-            return self.advance();
+            return self.advance().map(|token| Some(token));
         }
         let msg = format!("Expected tokens: {token_types:?}, got: {next:?}");
         Err(ParserError(next, msg))
@@ -787,6 +808,7 @@ pub(crate) mod tests {
 
     pub(crate) fn parse_statement_fails(input: &str) {
         let result = parse_statement(input);
+        println!("{:?}", result);
         assert!(
             result.is_err(),
             "expected parse failure for {input:?}, got {result:?}"
