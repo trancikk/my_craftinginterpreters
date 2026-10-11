@@ -4092,8 +4092,11 @@ pub(crate) mod tests {
 
             #[test]
             fn parses_return_value_and_keyword_token() {
-                let statement = parse_statement_ok("return 1 + 2;");
-                let ReturnStatement(token, Some(expr)) = statement else {
+                let statement = parse_statement_ok("fun sum(unused) { return 1 + 2; }");
+                let Statement::FunctionStatement { body, .. } = statement else {
+                    panic!("expected function declaration");
+                };
+                let [ReturnStatement(token, Some(expr))] = body.statements.as_slice() else {
                     panic!("expected return statement with a value");
                 };
 

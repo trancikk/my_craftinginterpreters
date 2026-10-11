@@ -199,7 +199,7 @@ fn eval_statement_ref(env: &EnvRef, statement: &Statement) -> Result<ExecFlow, R
             );
             Ok(Normal(None))
         }
-        Statement::ReturnStatement(token, expr) => {
+        Statement::ReturnStatement(_, expr) => {
             let result = if let Some(expr) = expr {
                 Some(eval_expr(env, expr.clone())?)
             } else {
