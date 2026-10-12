@@ -190,9 +190,9 @@ fn eval_statement_ref(env: &EnvRef, statement: &Statement) -> Result<ExecFlow, R
         Statement::FunctionStatement { name, args, body } => {
             Env::define(
                 env,
-                name.lexeme.clone(),
+                name.token.lexeme.clone(),
                 CallableValue(Rc::new(LoxFunction {
-                    name: name.lexeme.clone(),
+                    name: name.token.lexeme.clone(),
                     block: body.clone(),
                     params: args.iter().map(|arg| arg.lexeme.clone()).collect(),
                     env: Env::from_env(env),
@@ -227,7 +227,7 @@ fn eval_expr_ref(env: &EnvRef, exp: &Expr) -> Result<Value, RuntimeError> {
         }),
 
         Expr::AssignmentExpression { left, right } => {
-            let lexeme_value = &left.lexeme;
+            let lexeme_value = &left.token.lexeme;
 
             let target = Env::resolve(env, lexeme_value);
             match target {
@@ -238,7 +238,7 @@ fn eval_expr_ref(env: &EnvRef, exp: &Expr) -> Result<Value, RuntimeError> {
                 }
                 None => Err(RuntimeError::EvaluationError(
                     format!("Variable {lexeme_value} doesn't exist"),
-                    left.clone(),
+                    left.token.to_owned(),
                 )),
             }
         }
@@ -337,15 +337,15 @@ fn eval_expr_ref(env: &EnvRef, exp: &Expr) -> Result<Value, RuntimeError> {
             let msg = format!("Missing left operand for token {token}");
             Err(RuntimeError::EvaluationError(msg, token.clone()))
         }
-        Expr::IdentifierExpression(token) => {
-            if let Some(identifier_value) = Env::get(env, &token.lexeme) {
+        Expr::IdentifierExpression(ident_expr) => {
+            if let Some(identifier_value) = Env::get(env, &ident_expr.token.lexeme) {
                 if identifier_value == Undefined {
-                    Err(IdentifierNotInitialized(token.clone()))
+                    Err(IdentifierNotInitialized(ident_expr.token.clone()))
                 } else {
                     Ok(identifier_value)
                 }
             } else {
-                Err(RuntimeError::IdentifierNotFound(token.clone()))
+                Err(RuntimeError::IdentifierNotFound(ident_expr.token.clone()))
             }
         }
         Expr::CallableExpression {

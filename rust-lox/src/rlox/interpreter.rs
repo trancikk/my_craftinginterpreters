@@ -25,6 +25,8 @@ pub enum RloxError {
     ScannerError(u64, char, String),
     #[error("Got EOF")]
     EOF,
+    #[error("Resolver Error: Unexpected Token `{0:?}`")]
+    ResolverError(Token)
 }
 
 impl RLox {

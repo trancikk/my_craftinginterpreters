@@ -41,6 +41,12 @@ pub struct Block {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+pub struct IdentifierExpr {
+    pub(crate) token: Token,
+    pub(crate) hops: Option<u16>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub enum Statement {
     Print(Expr),
     ExprStatement(Expr),
@@ -59,7 +65,7 @@ pub enum Statement {
     ReturnStatement(Token, Option<Expr>),
     FunctionStatement {
         args: Vec<Token>,
-        name: Token,
+        name: IdentifierExpr,
         body: Block,
     },
 }
@@ -67,7 +73,7 @@ pub enum Statement {
 #[derive(Debug, PartialEq, Clone)]
 pub enum Expr {
     SyntaxLiteral(Literal),
-    IdentifierExpression(Token),
+    IdentifierExpression(IdentifierExpr),
     Binary {
         left: Box<Expr>,
         op: Token,
@@ -86,7 +92,7 @@ pub enum Expr {
         expr: Box<Expr>,
     },
     AssignmentExpression {
-        left: Token,
+        left: Box<IdentifierExpr>,
         right: Box<Expr>,
     },
     MissingLeftOperand {
@@ -204,7 +210,10 @@ impl<'src> Parser<'src> {
             self.fun_nesting -= 1;
             Ok(Statement::FunctionStatement {
                 args: params,
-                name,
+                name: IdentifierExpr {
+                    token: name,
+                    hops: None,
+                },
                 body,
             })
         } else {
@@ -421,11 +430,11 @@ impl<'src> Parser<'src> {
 
         if self.check(&Equal) {
             match l_value {
-                Expr::IdentifierExpression(token) => {
+                Expr::IdentifierExpression(ident_expr) => {
                     self.advance()?;
                     let r_value = self.parse_assignment()?;
                     Ok(AssignmentExpression {
-                        left: token,
+                        left: Box::new(ident_expr),
                         right: Box::new(r_value),
                     })
                 }
@@ -583,7 +592,10 @@ impl<'src> Parser<'src> {
     fn primary(&mut self) -> Result<Expr, RloxError> {
         let next = self.advance()?;
         match next.token_type.clone() {
-            Identifier => Ok(Expr::IdentifierExpression(next)),
+            Identifier => Ok(Expr::IdentifierExpression(IdentifierExpr {
+                token: next,
+                hops: None,
+            })),
             False => Ok(Expr::SyntaxLiteral(Literal::False)),
             True => Ok(Expr::SyntaxLiteral(Literal::True)),
             Nil => Ok(Expr::SyntaxLiteral(Literal::Nil)),
@@ -2316,10 +2328,10 @@ pub(crate) mod tests {
                         panic!("expected while statement");
                     };
 
-                    let Expr::AssignmentExpression { left, right } = expr else {
+                    let AssignmentExpression { left, right } = expr else {
                         panic!("expected assignment condition");
                     };
-                    assert_eq!(left.lexeme, "running");
+                    assert_eq!(left.token.lexeme, "running");
                     assert!(matches!(*right, Expr::SyntaxLiteral(Literal::False)));
                 });
             }
@@ -2381,7 +2393,7 @@ pub(crate) mod tests {
                     assert_eq!(op, Less);
                     assert!(matches!(
                         left,
-                        Expr::IdentifierExpression(token) if token.lexeme == "i"
+                        Expr::IdentifierExpression(ident) if ident.token.lexeme == "i"
                     ));
                     assert_eq!(as_number(right), 3);
 
@@ -2392,17 +2404,16 @@ pub(crate) mod tests {
                     assert_eq!(body.len(), 2);
                     assert!(matches!(body[0], Statement::Print(_)));
 
-                    let Statement::ExprStatement(Expr::AssignmentExpression { left, right }) =
-                        &body[1]
+                    let Statement::ExprStatement(AssignmentExpression { left, right }) = &body[1]
                     else {
                         panic!("expected increment assignment");
                     };
-                    assert_eq!(left.lexeme, "i");
+                    assert_eq!(left.token.lexeme, "i");
                     let (left, op, right) = as_binary(right);
                     assert_eq!(op, Plus);
                     assert!(matches!(
                         left,
-                        Expr::IdentifierExpression(token) if token.lexeme == "i"
+                        Expr::IdentifierExpression(ident) if ident.token.lexeme == "i"
                     ));
                     assert_eq!(as_number(right), 1);
                 });
@@ -2910,12 +2921,7 @@ pub(crate) mod tests {
                     assert!(init.is_some(), "initialized with nil should be Some");
                     // The inner expression should be a nil literal
                     if let Some(expr) = init {
-                        assert!(matches!(
-                            expr,
-                            Expr::SyntaxLiteral(
-                                Literal::Nil
-                            )
-                        ));
+                        assert!(matches!(expr, Expr::SyntaxLiteral(Literal::Nil)));
                     }
                 }
             }
@@ -3563,7 +3569,7 @@ pub(crate) mod tests {
 
         pub(crate) fn as_assignment(expr: &Expr) -> (&Token, &Expr) {
             match expr {
-                Expr::AssignmentExpression { left, right } => (left, right),
+                AssignmentExpression { left, right } => (&left.token, right),
                 other => panic!("expected assignment expression, got {other:?}"),
             }
         }
@@ -3896,10 +3902,10 @@ pub(crate) mod tests {
         }
 
         fn identifier(expr: &Expr) -> &str {
-            let Expr::IdentifierExpression(token) = expr else {
+            let Expr::IdentifierExpression(ident) = expr else {
                 panic!("expected identifier expression, got {expr:?}");
             };
-            &token.lexeme
+            &ident.token.lexeme
         }
 
         fn function_expression(expr: &Expr) -> (&[Token], &Block) {
@@ -3923,7 +3929,7 @@ pub(crate) mod tests {
                     panic!("expected function declaration");
                 };
 
-                assert_eq!(name.lexeme, "add");
+                assert_eq!(name.token.lexeme, "add");
                 assert_eq!(
                     args.iter()
                         .map(|arg| arg.lexeme.as_str())
