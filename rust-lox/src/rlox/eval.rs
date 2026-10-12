@@ -228,19 +228,20 @@ fn eval_expr_ref(env: &EnvRef, exp: &Expr) -> Result<Value, RuntimeError> {
 
         Expr::AssignmentExpression { left, right } => {
             let lexeme_value = &left.token.lexeme;
-
-            let target = Env::resolve(env, lexeme_value);
-            match target {
-                Some(target_env) => {
-                    let r_value = eval_expr_ref(env, right)?;
-                    Env::assign_local(&target_env, lexeme_value, r_value.clone());
-                    Ok(r_value)
-                }
-                None => Err(RuntimeError::EvaluationError(
-                    format!("Variable {lexeme_value} doesn't exist"),
-                    left.token.to_owned(),
-                )),
-            }
+            let r_value = eval_expr_ref(env, right)?;
+            Env::assign_at(env, lexeme_value, r_value.clone(), left.hops);
+            Ok(r_value)
+            // match target {
+            //     Some(target_env) => {
+            //
+            //         Env::assign_local(&target_env, lexeme_value, r_value.clone());
+            //         Ok(r_value)
+            //     }
+            //     None => Err(RuntimeError::EvaluationError(
+            //         format!("Variable {lexeme_value} doesn't exist"),
+            //         left.token.to_owned(),
+            //     )),
+            // }
         }
 
         Expr::Binary { left, op, right } => {
