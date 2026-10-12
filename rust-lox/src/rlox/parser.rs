@@ -822,6 +822,7 @@ impl<'src> Parser<'src> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use crate::rlox::var_resolver::Resolver;
 
     #[cfg(test)]
     pub(crate) fn parse_one_expression(input: &str) -> Expr {
@@ -837,13 +838,23 @@ pub(crate) mod tests {
     pub(crate) fn parse_expression(input: &str) -> Result<Expr, RloxError> {
         let scanner = Scanner::new(input.lines());
         let mut parser = Parser::new(scanner);
-        parser.parse_expression()
+        let mut resolver = Resolver::new();
+        let mut expr = parser.parse_expression();
+        if let Ok(exp) = &mut expr {
+            resolver.resolve_expression(exp)?
+        };
+        expr
     }
 
     pub(crate) fn parse_statement(input: &str) -> Result<Statement, RloxError> {
         let scanner = Scanner::new(input.lines());
         let mut parser = Parser::new(scanner);
-        parser.parse_statements()
+        let mut resolver = Resolver::new();
+        let mut statements = parser.parse_statements();
+        if let Ok(stmnts) = &mut statements {
+            resolver.resolve_statement(stmnts)?
+        };
+        statements
     }
 
     pub(crate) fn parse_ok(input: &str) -> Expr {

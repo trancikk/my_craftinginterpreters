@@ -2,7 +2,6 @@ use crate::rlox::interpreter::RloxError;
 use crate::rlox::parser::{Block, Expr, IdentifierExpr, Statement};
 use crate::rlox::token::Token;
 use std::collections::HashMap;
-use std::ops::Deref;
 
 pub struct Resolver {
     scopes: Vec<HashMap<String, bool>>,
@@ -21,7 +20,7 @@ impl Resolver {
         self.scopes.pop();
     }
 
-    fn resolve_statement(&mut self, statement: &mut Statement) -> Result<(), RloxError> {
+    pub fn resolve_statement(&mut self, statement: &mut Statement) -> Result<(), RloxError> {
         match statement {
             Statement::Print(expr) => {
                 self.resolve_expression(expr)?;
@@ -92,7 +91,7 @@ impl Resolver {
         }
     }
 
-    fn resolve_expression(&mut self, expr: &mut Expr) -> Result<(), RloxError> {
+    pub fn resolve_expression(&mut self, expr: &mut Expr) -> Result<(), RloxError> {
         match expr {
             Expr::SyntaxLiteral(_) => {}
             Expr::IdentifierExpression(ident_expr) => {
