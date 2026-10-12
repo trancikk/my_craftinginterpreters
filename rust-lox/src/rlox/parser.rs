@@ -44,7 +44,7 @@ pub struct Block {
 pub enum Statement {
     Print(Expr),
     ExprStatement(Expr),
-    DeclarationStatement(String, Option<Expr>),
+    DeclarationStatement(Token, Option<Expr>),
     BlockStatement(Block),
     IfStatement {
         expr: Expr,
@@ -334,7 +334,7 @@ impl<'src> Parser<'src> {
             None
         };
         self.consume_statement_end()?;
-        Ok(DeclarationStatement(name.lexeme, initializer))
+        Ok(DeclarationStatement(name, initializer))
     }
 
     fn print_statement(&mut self) -> Result<Statement, RloxError> {
@@ -2371,7 +2371,7 @@ pub(crate) mod tests {
                     else {
                         panic!("expected variable initializer");
                     };
-                    assert_eq!(name, "i");
+                    assert_eq!(name.lexeme, "i");
                     assert_eq!(as_number(initializer), 0);
 
                     let Statement::WhileStatement { expr, body } = &statements[1] else {
@@ -2731,8 +2731,8 @@ pub(crate) mod tests {
                 let mut parser = Parser::new(scanner);
                 let result = parser.parse_statements();
                 assert!(result.is_ok(), "Failed to parse: {:?}", result);
-                if let Ok(Statement::DeclarationStatement(name, init)) = result {
-                    assert_eq!(name, "x");
+                if let Ok(DeclarationStatement(name, init)) = result {
+                    assert_eq!(name.lexeme, "x");
                     assert!(init.is_none());
                 } else {
                     panic!("expected DeclarationStatement");
@@ -2747,22 +2747,22 @@ pub(crate) mod tests {
 
                 let stmt1 = parser.parse_statements();
                 assert!(stmt1.is_ok());
-                if let Statement::DeclarationStatement(name, init) = stmt1.unwrap() {
-                    assert_eq!(name, "a");
+                if let DeclarationStatement(name, init) = stmt1.unwrap() {
+                    assert_eq!(name.lexeme, "a");
                     assert!(init.is_none());
                 }
 
                 let stmt2 = parser.parse_statements();
                 assert!(stmt2.is_ok());
-                if let Statement::DeclarationStatement(name, init) = stmt2.unwrap() {
-                    assert_eq!(name, "b");
+                if let DeclarationStatement(name, init) = stmt2.unwrap() {
+                    assert_eq!(name.lexeme, "b");
                     assert!(init.is_some());
                 }
 
                 let stmt3 = parser.parse_statements();
                 assert!(stmt3.is_ok());
-                if let Statement::DeclarationStatement(name, init) = stmt3.unwrap() {
-                    assert_eq!(name, "c");
+                if let DeclarationStatement(name, init) = stmt3.unwrap() {
+                    assert_eq!(name.lexeme, "c");
                     assert!(init.is_none());
                 }
             }
@@ -2783,8 +2783,8 @@ pub(crate) mod tests {
                 for (name, should_have_init) in expected {
                     let stmt = parser.parse_statements();
                     assert!(stmt.is_ok());
-                    if let Statement::DeclarationStatement(n, init) = stmt.unwrap() {
-                        assert_eq!(n, name);
+                    if let DeclarationStatement(n, init) = stmt.unwrap() {
+                        assert_eq!(n.lexeme, name);
                         assert_eq!(init.is_some(), should_have_init, "{name} init mismatch");
                     } else {
                         panic!("expected DeclarationStatement");
@@ -2803,8 +2803,8 @@ pub(crate) mod tests {
 
                 let stmt1 = parser.parse_statements();
                 assert!(stmt1.is_ok());
-                if let Statement::DeclarationStatement(name, init) = stmt1.unwrap() {
-                    assert_eq!(name, "x");
+                if let DeclarationStatement(name, init) = stmt1.unwrap() {
+                    assert_eq!(name.lexeme, "x");
                     assert!(init.is_none());
                 }
 
@@ -2821,8 +2821,8 @@ pub(crate) mod tests {
 
                 let stmt = parser.parse_statements();
                 assert!(stmt.is_ok());
-                if let Statement::DeclarationStatement(name, init) = stmt.unwrap() {
-                    assert_eq!(name, "x");
+                if let DeclarationStatement(name, init) = stmt.unwrap() {
+                    assert_eq!(name.lexeme, "x");
                     assert!(init.is_some());
                 }
             }
@@ -2836,17 +2836,17 @@ pub(crate) mod tests {
 
                 let stmt1 = parser.parse_statements();
                 assert!(
-                    matches!(stmt1.unwrap(), Statement::DeclarationStatement(n, i) if n == "a" && i.is_none())
+                    matches!(stmt1.unwrap(), Statement::DeclarationStatement(n, i) if n.lexeme == "a" && i.is_none())
                 );
 
                 let stmt2 = parser.parse_statements();
                 assert!(
-                    matches!(stmt2.unwrap(), Statement::DeclarationStatement(n, i) if n == "b" && i.is_none())
+                    matches!(stmt2.unwrap(), Statement::DeclarationStatement(n, i) if n.lexeme == "b" && i.is_none())
                 );
 
                 let stmt3 = parser.parse_statements();
                 assert!(
-                    matches!(stmt3.unwrap(), Statement::DeclarationStatement(n, i) if n == "c" && i.is_some())
+                    matches!(stmt3.unwrap(), Statement::DeclarationStatement(n, i) if n.lexeme == "c" && i.is_some())
                 );
             }
 
@@ -2864,12 +2864,12 @@ pub(crate) mod tests {
 
                 let stmt1 = parser.parse_statements();
                 assert!(
-                    matches!(stmt1.unwrap(), Statement::DeclarationStatement(n, i) if n == "a" && i.is_none())
+                    matches!(stmt1.unwrap(), Statement::DeclarationStatement(n, i) if n.lexeme == "a" && i.is_none())
                 );
 
                 let stmt2 = parser.parse_statements();
                 assert!(
-                    matches!(stmt2.unwrap(), Statement::DeclarationStatement(n, i) if n == "b" && i.is_some())
+                    matches!(stmt2.unwrap(), Statement::DeclarationStatement(n, i) if n.lexeme == "b" && i.is_some())
                 );
             }
 
@@ -2881,7 +2881,7 @@ pub(crate) mod tests {
 
                 let stmt1 = parser.parse_statements();
                 assert!(
-                    matches!(stmt1.unwrap(), Statement::DeclarationStatement(n, i) if n == "x" && i.is_none())
+                    matches!(stmt1.unwrap(), Statement::DeclarationStatement(n, i) if n.lexeme == "x" && i.is_none())
                 );
 
                 let stmt2 = parser.parse_statements();
@@ -2897,7 +2897,7 @@ pub(crate) mod tests {
 
                 let stmt1 = parser.parse_statements();
                 if let Statement::DeclarationStatement(name, init) = stmt1.unwrap() {
-                    assert_eq!(name, "x");
+                    assert_eq!(name.lexeme, "x");
                     assert!(
                         init.is_none(),
                         "uninitialized should be None, not Some(nil)"
@@ -2905,15 +2905,15 @@ pub(crate) mod tests {
                 }
 
                 let stmt2 = parser.parse_statements();
-                if let Statement::DeclarationStatement(name, init) = stmt2.unwrap() {
-                    assert_eq!(name, "y");
+                if let DeclarationStatement(name, init) = stmt2.unwrap() {
+                    assert_eq!(name.lexeme, "y");
                     assert!(init.is_some(), "initialized with nil should be Some");
                     // The inner expression should be a nil literal
                     if let Some(expr) = init {
                         assert!(matches!(
                             expr,
-                            crate::rlox::parser::Expr::SyntaxLiteral(
-                                crate::rlox::parser::Literal::Nil
+                            Expr::SyntaxLiteral(
+                                Literal::Nil
                             )
                         ));
                     }
@@ -3861,7 +3861,7 @@ pub(crate) mod tests {
 
             assert!(matches!(
                 result,
-                Ok(Statement::DeclarationStatement(name, Some(_))) if name == "x"
+                Ok(Statement::DeclarationStatement(name, Some(_))) if name.lexeme == "x"
             ));
         }
 
@@ -4101,7 +4101,7 @@ pub(crate) mod tests {
                     panic!("expected declaration with initializer, got {statement:?}");
                 };
 
-                assert_eq!(name, "f");
+                assert_eq!(name.lexeme, "f");
                 assert_eq!(param_names(function_expression(&expr).0), ["n"]);
             }
 

@@ -174,7 +174,7 @@ fn eval_statement_ref(env: &EnvRef, statement: &Statement) -> Result<ExecFlow, R
                 Some(expr) => eval_expr_ref(env, expr)?,
                 None => Undefined,
             };
-            Env::define(env, name.clone(), initial_value.clone());
+            Env::define(env, name.lexeme.clone(), initial_value.clone());
             Ok(Normal(Some(initial_value)))
         }
         Statement::ExprStatement(expr) => {
@@ -2015,7 +2015,7 @@ mod tests {
                 let err = eval_parse("1 + true").unwrap_err();
                 assert_eq!(
                     err.to_string(),
-                    "Unexpected operand Number(1.0) for operator + at line 0!"
+                    "Unexpected operand Number(1.0) for operator + at line 1!"
                 );
             }
 
@@ -2033,7 +2033,7 @@ mod tests {
                 let err = eval_parse("true < 1").unwrap_err();
                 assert_eq!(
                     err.to_string(),
-                    "Unexpected operand Boolean(true) for operator < at line 0!"
+                    "Unexpected operand Boolean(true) for operator < at line 1!"
                 );
             }
 
@@ -2042,7 +2042,7 @@ mod tests {
                 let err = eval_parse("-nil").unwrap_err();
                 assert_eq!(
                     err.to_string(),
-                    "Unexpected operand Nil for operator - at line 0!"
+                    "Unexpected operand Nil for operator - at line 1!"
                 );
             }
 
@@ -2051,7 +2051,7 @@ mod tests {
                 let err = eval_parse("1 + true").unwrap_err();
                 assert_eq!(
                     err.to_string(),
-                    "Unexpected operand Number(1.0) for operator + at line 0!"
+                    "Unexpected operand Number(1.0) for operator + at line 1!"
                 );
             }
 
@@ -2060,7 +2060,7 @@ mod tests {
                 let err = eval_parse("true - 1").unwrap_err();
                 assert_eq!(
                     err.to_string(),
-                    "Unexpected operand Boolean(true) for operator - at line 0!"
+                    "Unexpected operand Boolean(true) for operator - at line 1!"
                 );
             }
         }
