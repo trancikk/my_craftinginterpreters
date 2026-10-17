@@ -2,9 +2,17 @@ use crate::rlox::interpreter::RloxError;
 use crate::rlox::parser::{Block, Expr, IdentifierExpr, Statement};
 use crate::rlox::token::Token;
 use std::collections::HashMap;
+use crate::rlox::var_resolver::Resolution::Local;
 
 pub struct Resolver {
     scopes: Vec<HashMap<String, bool>>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Resolution {
+    Unresolved,
+    Global,
+    Local(u16),
 }
 
 impl Resolver {
@@ -83,7 +91,7 @@ impl Resolver {
             let token_lexeme = &ident.token.lexeme;
             for (i, scope) in self.scopes.iter().rev().enumerate() {
                 if scope.get(token_lexeme).is_some() {
-                    ident.hops = Some(i as u16);
+                    ident.hops = Local(i as u16);
                     break;
                 }
             }

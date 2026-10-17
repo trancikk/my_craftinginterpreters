@@ -31,7 +31,7 @@ pub enum RloxError {
 
 impl RLox {
     pub fn new() -> RLox {
-        let env = Env::new();
+        let env = Env::new_global();
         define_clock(env.clone());
         RLox {
             global_env: env,

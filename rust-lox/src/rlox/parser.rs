@@ -15,6 +15,8 @@ use crate::rlox::token::TokenType::{
     StringToken, True, Var, While,
 };
 use crate::rlox::token::{Token, TokenType};
+use crate::rlox::var_resolver::Resolution;
+use crate::rlox::var_resolver::Resolution::Unresolved;
 
 const MAX_ARGS: usize = 255;
 
@@ -43,7 +45,7 @@ pub struct Block {
 #[derive(Debug, PartialEq, Clone)]
 pub struct IdentifierExpr {
     pub(crate) token: Token,
-    pub(crate) hops: Option<u16>,
+    pub(crate) hops: Resolution,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -212,7 +214,7 @@ impl<'src> Parser<'src> {
                 args: params,
                 name: IdentifierExpr {
                     token: name,
-                    hops: None,
+                    hops: Unresolved,
                 },
                 body,
             })
@@ -536,13 +538,14 @@ impl<'src> Parser<'src> {
 
     fn callable(&mut self) -> Result<Expr, RloxError> {
         let mut expr = self.primary()?;
+        // expr = self.parse_callable(expr)?;
         if self.check_and_advance(&LeftParen) {
-            loop {
-                expr = self.parse_callable(expr)?;
-                if !self.check_and_advance(&Comma) {
-                    break;
-                }
-            }
+            // loop {
+            expr = self.parse_callable(expr)?;
+            // if !self.check_and_advance(&Comma) {
+            //     break;
+            // }
+            // }
         }
 
         Ok(expr)
@@ -559,6 +562,7 @@ impl<'src> Parser<'src> {
                 });
             }
             let ass_expr = self.parse_assignment()?;
+            // println!("Pushing {:?}", ass_expr);
             args.push(ass_expr);
             if args.len() > MAX_ARGS {
                 let next_token = self.peek()?;
@@ -594,7 +598,7 @@ impl<'src> Parser<'src> {
         match next.token_type.clone() {
             Identifier => Ok(Expr::IdentifierExpression(IdentifierExpr {
                 token: next,
-                hops: None,
+                hops: Unresolved,
             })),
             False => Ok(Expr::SyntaxLiteral(Literal::False)),
             True => Ok(Expr::SyntaxLiteral(Literal::True)),
@@ -840,6 +844,11 @@ pub(crate) mod tests {
         let mut parser = Parser::new(scanner);
         let mut resolver = Resolver::new();
         let mut expr = parser.parse_expression();
+        while let res = parser.parse_expression()
+            && res.is_ok()
+        {
+            expr = res
+        }
         if let Ok(exp) = &mut expr {
             resolver.resolve_expression(exp)?
         };
@@ -859,6 +868,7 @@ pub(crate) mod tests {
 
     pub(crate) fn parse_ok(input: &str) -> Expr {
         let result = parse_expression(input);
+        println!("{:?}", result);
         result.unwrap_or_else(|_| panic!("expected expression for {input:?}"))
     }
 
