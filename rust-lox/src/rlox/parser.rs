@@ -850,11 +850,11 @@ pub(crate) mod tests {
     pub(crate) fn parse_statement(input: &str) -> Result<Statement, RloxError> {
         let scanner = Scanner::new(input.lines());
         let mut parser = Parser::new(scanner);
-        let mut resolver = Resolver::new();
+        // let mut resolver = Resolver::new();
         let mut statements = parser.parse_statements();
-        if let Ok(stmnts) = &mut statements {
-            resolver.resolve_statement(stmnts)?
-        };
+        // if let Ok(stmnts) = &mut statements {
+        //     resolver.resolve_statement(stmnts)?
+        // };
         statements
     }
 

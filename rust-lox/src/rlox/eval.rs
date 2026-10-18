@@ -195,7 +195,7 @@ fn eval_statement_ref(env: &EnvRef, statement: &Statement) -> Result<ExecFlow, R
                     name: name.token.lexeme.clone(),
                     block: body.clone(),
                     params: args.iter().map(|arg| arg.lexeme.clone()).collect(),
-                    env: Env::from_env(env),
+                    env: env.clone(),
                 })),
             );
             Ok(Normal(None))
@@ -2432,6 +2432,7 @@ mod tests {
 
         mod nested_environment {
             use super::*;
+            use crate::rlox::parser::tests::parse_one_expression;
 
             #[test]
             fn nested_env_child_can_read_parent() {
@@ -2439,7 +2440,7 @@ mod tests {
                 Env::define(&parent, "x".to_string(), Value::Number(10.0));
                 let child = Env::from_env(&parent);
 
-                assert_number(eval_expr(&child, parse_ok("x")).unwrap(), 10.0);
+                assert_number(eval_expr(&child, parse_one_expression("x")).unwrap(), 10.0);
             }
 
             #[test]
@@ -2449,8 +2450,8 @@ mod tests {
                 let child = Env::from_env(&parent);
                 Env::define(&child, "x".to_string(), Value::Number(20.0));
 
-                assert_number(eval_expr(&child, parse_ok("x")).unwrap(), 20.0);
-                assert_number(eval_expr(&parent, parse_ok("x")).unwrap(), 10.0);
+                assert_number(eval_expr(&child, parse_one_expression("x")).unwrap(), 20.0);
+                assert_number(eval_expr(&parent, parse_one_expression("x")).unwrap(), 10.0);
             }
 
             #[test]
@@ -2459,8 +2460,11 @@ mod tests {
                 Env::define(&parent, "x".to_string(), Value::Number(10.0));
                 let child = Env::from_env(&parent);
 
-                assert_number(eval_expr(&child, parse_ok("x = 20")).unwrap(), 20.0);
-                assert_number(eval_expr(&parent, parse_ok("x")).unwrap(), 20.0);
+                assert_number(
+                    eval_expr(&child, parse_one_expression("x = 20")).unwrap(),
+                    20.0,
+                );
+                assert_number(eval_expr(&parent, parse_one_expression("x")).unwrap(), 20.0);
             }
 
             #[test]
@@ -2468,7 +2472,7 @@ mod tests {
                 let parent = Env::new_global();
                 let child = Env::from_env(&parent);
 
-                let result = eval_expr(&child, parse_ok("y = 30"));
+                let result = eval_expr(&child, parse_one_expression("y = 30"));
 
                 assert!(matches!(result, Err(RuntimeError::EvaluationError(_, _))));
                 assert_eq!(Env::get(&child, "y"), None);
@@ -2484,9 +2488,9 @@ mod tests {
                 let child = Env::from_env(&parent);
                 Env::define(&child, "c".to_string(), Value::Number(3.0));
 
-                assert_number(eval_expr(&child, parse_ok("a")).unwrap(), 1.0);
-                assert_number(eval_expr(&child, parse_ok("b")).unwrap(), 2.0);
-                assert_number(eval_expr(&child, parse_ok("c")).unwrap(), 3.0);
+                assert_number(eval_expr(&child, parse_one_expression("a")).unwrap(), 1.0);
+                assert_number(eval_expr(&child, parse_one_expression("b")).unwrap(), 2.0);
+                assert_number(eval_expr(&child, parse_one_expression("c")).unwrap(), 3.0);
             }
 
             #[test]
@@ -2496,8 +2500,14 @@ mod tests {
                 let parent = Env::from_env(&grandparent);
                 let child = Env::from_env(&parent);
 
-                assert_number(eval_expr(&child, parse_ok("x = 100")).unwrap(), 100.0);
-                assert_number(eval_expr(&grandparent, parse_ok("x")).unwrap(), 100.0);
+                assert_number(
+                    eval_expr(&child, parse_one_expression("x = 100")).unwrap(),
+                    100.0,
+                );
+                assert_number(
+                    eval_expr(&grandparent, parse_one_expression("x")).unwrap(),
+                    100.0,
+                );
             }
 
             #[test]
@@ -2508,9 +2518,15 @@ mod tests {
                 Env::define(&parent, "x".to_string(), Value::Number(2.0));
                 let child = Env::from_env(&parent);
 
-                assert_number(eval_expr(&child, parse_ok("x = 3")).unwrap(), 3.0);
-                assert_number(eval_expr(&parent, parse_ok("x")).unwrap(), 3.0);
-                assert_number(eval_expr(&grandparent, parse_ok("x")).unwrap(), 1.0);
+                assert_number(
+                    eval_expr(&child, parse_one_expression("x = 3")).unwrap(),
+                    3.0,
+                );
+                assert_number(eval_expr(&parent, parse_one_expression("x")).unwrap(), 3.0);
+                assert_number(
+                    eval_expr(&grandparent, parse_one_expression("x")).unwrap(),
+                    1.0,
+                );
             }
 
             #[test]
@@ -2520,13 +2536,13 @@ mod tests {
                 let child = Env::from_env(&parent);
                 Env::define(&child, "x".to_string(), Value::Undefined);
 
-                let result = eval_expr(&child, parse_ok("x"));
+                let result = eval_expr(&child, parse_one_expression("x"));
 
                 assert!(matches!(
                     result,
                     Err(RuntimeError::IdentifierNotInitialized(_))
                 ));
-                assert_number(eval_expr(&parent, parse_ok("x")).unwrap(), 1.0);
+                assert_number(eval_expr(&parent, parse_one_expression("x")).unwrap(), 1.0);
             }
 
             #[test]
@@ -2535,8 +2551,11 @@ mod tests {
                 Env::define(&parent, "x".to_string(), Value::Undefined);
                 let child = Env::from_env(&parent);
 
-                assert_number(eval_expr(&child, parse_ok("x = 2")).unwrap(), 2.0);
-                assert_number(eval_expr(&parent, parse_ok("x")).unwrap(), 2.0);
+                assert_number(
+                    eval_expr(&child, parse_one_expression("x = 2")).unwrap(),
+                    2.0,
+                );
+                assert_number(eval_expr(&parent, parse_one_expression("x")).unwrap(), 2.0);
             }
         }
 
@@ -2661,7 +2680,7 @@ mod tests {
                     &env,
                     parse_statement_ok("{ var x = 2; { x = 3; } observed = x; }"),
                 )
-                    .unwrap();
+                .unwrap();
                 assert!(matches!(result, Normal(None)));
 
                 assert_eq!(Env::get(&env, "x"), Some(Value::Number(1.0)));
@@ -3101,7 +3120,7 @@ mod tests {
                     })();
                     "#,
                 )
-                    .unwrap();
+                .unwrap();
 
                 assert!(matches!(results.as_slice(), [Normal(Some(Value::Nil))]));
             }

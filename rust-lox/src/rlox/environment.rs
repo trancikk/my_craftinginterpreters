@@ -78,8 +78,13 @@ impl Env {
         }
     }
 
-    pub fn assign_local(&mut self, name: &str, value: Value) {
-        self.names.insert(name.to_string(), value);
+    pub fn assign_local(&mut self, name: &str, value: Value) -> bool {
+        if self.names.contains_key(name) {
+            self.names.insert(name.to_string(), value);
+            true
+        } else {
+            false
+        }
     }
 
     pub fn get(env_ref: &EnvRef, name: &str) -> Option<Value> {
@@ -125,8 +130,7 @@ impl Env {
     pub fn assign_at(env: &EnvRef, name: &str, value: Value, at: &Resolution) -> bool {
         let target_env = Self::resolve_env(env, name, at);
         if let Some(env) = target_env {
-            env.borrow_mut().assign_local(name, value);
-            true
+            env.borrow_mut().assign_local(name, value)
         } else {
             false
         }
