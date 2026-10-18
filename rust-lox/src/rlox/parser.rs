@@ -538,14 +538,8 @@ impl<'src> Parser<'src> {
 
     fn callable(&mut self) -> Result<Expr, RloxError> {
         let mut expr = self.primary()?;
-        // expr = self.parse_callable(expr)?;
-        if self.check_and_advance(&LeftParen) {
-            // loop {
+        while self.check_and_advance(&LeftParen) {
             expr = self.parse_callable(expr)?;
-            // if !self.check_and_advance(&Comma) {
-            //     break;
-            // }
-            // }
         }
 
         Ok(expr)
@@ -625,10 +619,13 @@ impl<'src> Parser<'src> {
     }
 
     fn parse_fun_args(&mut self) -> Result<Vec<Token>, RloxError> {
-        let mut params = vec![];
+        let mut params: Vec<Token> = vec![];
         if !self.check_and_advance(&RightParen) {
             loop {
                 let param = self.consume(&Identifier, "Expected parameter name")?;
+                if params.iter().find(|item| item.lexeme == param.lexeme).is_some() {
+                    return Err(ParserError(param, String::from("Duplicate parameter!")));
+                }
                 if params.len() >= MAX_ARGS {
                     let next_token = self.peek()?;
                     return Err(ParserError(
@@ -844,11 +841,6 @@ pub(crate) mod tests {
         let mut parser = Parser::new(scanner);
         let mut resolver = Resolver::new();
         let mut expr = parser.parse_expression();
-        while let res = parser.parse_expression()
-            && res.is_ok()
-        {
-            expr = res
-        }
         if let Ok(exp) = &mut expr {
             resolver.resolve_expression(exp)?
         };
@@ -868,7 +860,6 @@ pub(crate) mod tests {
 
     pub(crate) fn parse_ok(input: &str) -> Expr {
         let result = parse_expression(input);
-        println!("{:?}", result);
         result.unwrap_or_else(|_| panic!("expected expression for {input:?}"))
     }
 
