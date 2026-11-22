@@ -47,8 +47,9 @@ impl Resolver {
             }
             Statement::BlockStatement(block) => {
                 self.begin_scope();
-                self.resolve_block(block)?;
+                let res = self.resolve_block(block);
                 self.end_scope();
+                res?
             }
             Statement::IfStatement {
                 expr,
