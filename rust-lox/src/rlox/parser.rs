@@ -142,14 +142,6 @@ impl<'src> Parser<'src> {
         }
     }
 
-    // pub fn new_repl(scanner: Scanner<'src>) -> Parser<'src> {
-    //     Self::new_with_mode(scanner, ParserMode::Repl)
-    // }
-
-    // pub fn parse(&mut self) {
-    //     while self.expression().is_ok() {}
-    // }
-
     pub fn parse_statements(&mut self) -> Result<Statement, RloxError> {
         let next_token = self.peek()?;
         {
@@ -623,7 +615,11 @@ impl<'src> Parser<'src> {
         if !self.check_and_advance(&RightParen) {
             loop {
                 let param = self.consume(&Identifier, "Expected parameter name")?;
-                if params.iter().find(|item| item.lexeme == param.lexeme).is_some() {
+                if params
+                    .iter()
+                    .find(|item| item.lexeme == param.lexeme)
+                    .is_some()
+                {
                     return Err(ParserError(param, String::from("Duplicate parameter!")));
                 }
                 if params.len() >= MAX_ARGS {

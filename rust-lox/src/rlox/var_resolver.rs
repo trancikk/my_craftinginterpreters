@@ -17,7 +17,9 @@ pub enum Resolution {
 
 impl Resolver {
     pub fn new() -> Resolver {
-        Resolver { scopes: vec![] }
+        Resolver {
+            scopes: vec![HashMap::new()],
+        }
     }
 
     fn begin_scope(&mut self) {
@@ -173,13 +175,10 @@ impl Resolver {
         Err(RloxError::ResolverError(name.clone()))
     }
 
-    fn exist(&mut self, name: &Token) -> bool {
-        if let Some(map) = self.scopes.last_mut() {
-            map.contains_key(&name.lexeme)
-        } else {
-            false
-        }
-    }
+    // fn exist(&mut self, name: &Token) -> bool {
+    //     let scope = self.resolve_scope();
+    //     !scope.contains_key(&name.lexeme)
+    // }
 
     fn declare_and_define(&mut self, name: &Token) -> Result<(), RloxError> {
         if let Some(map) = self.scopes.last_mut()
@@ -523,10 +522,22 @@ mod tests {
     }
 
     #[test]
-    fn global_self_initializer_is_resolved_as_global() {
-        let statement = resolve_statement("var value = value;").unwrap();
+    fn global_self_initializer_is_error() {
+        // Project policy: unlike the book, self-initialization is rejected at every scope,
+        // including globals, instead of being deferred to a runtime lookup.
+        let error = resolve_statement("var value = value;").unwrap_err();
 
-        assert_eq!(references(&statement), vec![("value".to_string(), Global)]);
+        assert!(matches!(
+            error,
+            RloxError::ResolverError(token) if token.lexeme == "value"
+        ));
+    }
+
+    #[test]
+    fn top_level_global_declaration_is_allowed() {
+        let statement = resolve_statement("var value = 42;");
+
+        assert!(statement.is_ok());
     }
 
     #[test]
